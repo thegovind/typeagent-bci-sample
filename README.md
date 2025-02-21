@@ -1,57 +1,35 @@
-# Project Name
+# BCI TypeAgent Demo
 
-(short, 1-3 sentenced, description of the project)
+This repository is a work in progress demonstration showcasing how AI Agents can be personalized using Brain Computer Interfaces (BCI).
 
-## Features
+The goal of this project is to explore how brain signals can be used to customize and enhance interactions with AI assistants, creating a more personalized and intuitive experience.
 
-This project framework provides the following features:
+> [!WARNING] 
+> Status: Work in Progress
 
-* Feature 1
-* Feature 2
-* ...
+This is an experimental project that combines:
 
-## Getting Started
+- fNIRS brain activity data
+- AI Agent interactions, mediated by TypeAgent
+- Personalization through neural signals
 
-### Prerequisites
-
-(ideally very short, if any)
-
-- OS
-- Library version
-- ...
-
-### Installation
-
-(ideally very short)
-
-- npm install [package name]
-- mvn install
-- ...
-
-### Quickstart
-(Add steps to get up and running quickly)
-
-1. git clone [repository clone url]
-2. cd [repository name]
-3. ...
+![screenshot](./public/screenshot.png)
 
 
-## Demo
+## Technologies Used
 
-A demo app is included to show how to use the project.
+Built with:
+- Vite
+- TypeScript  
+- TypeAgent
+- Azure AI Foundry
 
-To run the demo, follow these steps:
+## Local Development
 
-(Add steps to start up the demo)
+Requires Node.js & npm installed.
 
-1.
-2.
-3.
+```bash
+pnpm install
+pnpm run dev
+```
 
-## Resources
-
-(Any additional resources or related projects)
-
-- Link to supporting information
-- Link to similar sample
-- ...
