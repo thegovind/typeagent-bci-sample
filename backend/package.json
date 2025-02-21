@@ -19,7 +19,6 @@
     "typechat",
     "azure-ai"
   ],
-  "author": "Devin",
   "license": "MIT",
   "dependencies": {
     "@azure/core-client": "^1.9.2",

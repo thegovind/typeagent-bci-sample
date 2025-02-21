@@ -1,6 +1,26 @@
+/**
+ * Chat Handler Module
+ * Processes chat interactions while taking into account BCI metrics for adaptive responses.
+ * This handler integrates brain-computer interface data with natural language processing
+ * to provide context-aware responses based on the user's cognitive state.
+ */
+
 import { ChatAction, ChatResponse } from '../schemas/chatSchema.js';
 import { callOpenAI } from '../utils/openai.js';
 
+/**
+ * Handles incoming chat actions with BCI metrics integration
+ * 
+ * @param action - The chat action containing the message and BCI metrics
+ * @param action.parameters.message - The user's text message
+ * @param action.parameters.bciMetrics - Object containing brain activity measurements
+ * @param action.parameters.bciMetrics.focus - User's focus level (0-100)
+ * @param action.parameters.bciMetrics.stress - User's stress level (0-100)
+ * @param action.parameters.bciMetrics.cognitive_load - User's cognitive load level (0-100)
+ * 
+ * @returns ChatResponse object containing the AI's response and metadata
+ * @throws Error if the request is invalid or processing fails
+ */
 export async function handleChatAction(action: ChatAction): Promise<ChatResponse> {
   try {
     console.log('Received chat action:', JSON.stringify(action, null, 2));

@@ -35,14 +35,14 @@ const actionTiles = [
   },
   {
     title: "Chat with Your Data",
-    description: "Experience hyper-personalized responses optimized by your brain activity patterns",
+    description: "Experience personalized responses optimized by your brain activity patterns",
     icon: MessageSquare,
     color: "bg-pink-500/10 text-pink-500",
     path: "/chat"
   },
   {
     title: "Settings",
-    description: "Configure your BCI device and personalization preferences",
+    description: "Configure your BCI device (fNIRS) and personalization preferences",
     icon: Settings,
     color: "bg-gray-500/10 text-gray-500",
     path: "/settings"

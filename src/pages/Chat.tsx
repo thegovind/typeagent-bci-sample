@@ -95,7 +95,7 @@ const Chat = () => {
         <div className="flex h-screen flex-col p-6">
           <div className="mb-4">
             <h1 className="text-2xl font-bold">Chat with Your Data</h1>
-            <p className="text-muted-foreground">Experience hyper-personalized responses optimized by your brain activity patterns</p>
+            <p className="text-muted-foreground">Experience personalized responses optimized by your brain activity patterns</p>
           </div>
 
           <ScrollArea className="flex-1 rounded-lg border border-sidebar-border bg-background/50 p-4">

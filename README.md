@@ -5,7 +5,7 @@ This repository is a work in progress demonstration showcasing how AI Agents can
 The goal of this project is to explore how brain signals (fNIRS) can be used to customize and enhance interactions with AI Agents, creating a more personalized and intuitive experience. It is powered by [TypeAgent](https://github.com/microsoft/TypeAgent) and [Azure AI Foundry](https://ai.azure.com/), and uses the [BlueberryX BCI Device](https://blueberryx.com/) to collect brain signals.
 
 > [!WARNING] 
-> Status: Work in Progress. You will need a [BlueberryX BCI Device](https://blueberryx.com/) to run this project.
+> Status: Work in Progress.
 
 This is an experimental project that combines:
 
