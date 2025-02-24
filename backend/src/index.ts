@@ -4,7 +4,7 @@
  * including chat, data analysis, report generation, mindfulness meditation, and task automation.
  */
 
-import express, { Request, Response } from 'express';
+import express, { Request, Response, RequestHandler } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -14,7 +14,7 @@ import { handleDataAnalysisAction } from './handlers/dataAnalysisHandler.js';
 import { handleReportGeneratorAction } from './handlers/reportGeneratorHandler.js';
 import { handleMindfulnessMeditationAction } from './handlers/mindfulnessMeditationHandler.js';
 import { handleTaskAutomationAction } from './handlers/taskAutomationHandler.js';
-import { getMostRecentDocument } from './utils/cosmosdb.js';
+import { getMostRecentDocument, getFlowIntensityData } from './utils/cosmosdb.js';
 
 // Convert ESM module paths to filesystem paths
 const __filename = fileURLToPath(import.meta.url);
@@ -160,6 +160,34 @@ app.post('/api/getMostRecentRecord', async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to fetch record" });
   }
 });
+
+/**
+ * Get Flow Intensity Data Endpoint
+ * Retrieves the flow intensity data for a specific user from Cosmos DB
+ * POST /api/getFlowIntensityData
+ * Request body: { days: number }
+ * Response: { record: object } or { message: string } if no record found
+ */
+app.post('/api/getFlowIntensityData', (async (req: Request, res: Response) => {
+  try {
+    const userId = "A6BC96AF-E53F-4C57-8D5A-88F1D7BCB1AD";
+    const { days } = req.body;
+
+    if (!userId || !days) {
+      return res.status(400).json({ message: 'Missing required parameters' });
+    }
+
+    const records = await getFlowIntensityData(userId, days);
+    if (records){
+      res.json(records);
+    } else {
+      res.status(404).json({ message: "No records found" });
+    }
+  } catch (error) {
+    console.error('Error fetching flow intensity data:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+}) as RequestHandler);
 
 // Start the server
 const port = process.env.PORT || 3000;

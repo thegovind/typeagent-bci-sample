@@ -20,6 +20,12 @@ interface CosmosConfig {
   containerId: string;
 }
 
+export interface FlowRecord {
+  userId: string;
+  timestamp: Date;
+  flowIntensityValues: number[];  // Array of flow intensity values
+}
+
 /**
  * Validates and returns Cosmos DB configuration
  */
@@ -33,12 +39,12 @@ function getCosmosConfig(): CosmosConfig {
   };
 
   // Debug log all environment variables
-  console.log('Environment Variables:', {
-    COSMOS_DB_ENDPOINT: config.endpoint,
-    COSMOS_DB_DATABASE_ID: config.databaseId,
-    COSMOS_DB_CONTAINER_ID: config.containerId,
-    hasKey: !!config.key
-  });
+  // console.log('Environment Variables:', {
+  //   COSMOS_DB_ENDPOINT: config.endpoint,
+  //   COSMOS_DB_DATABASE_ID: config.databaseId,
+  //   COSMOS_DB_CONTAINER_ID: config.containerId,
+  //   hasKey: !!config.key
+  // });
 
   // Check each configuration value
   const missingValues = Object.entries(config)
@@ -114,6 +120,49 @@ export async function getMostRecentDocument(userId: string) {
 
   } catch (error) {
     console.error('Detailed error in getMostRecentDocument:', error);
+    throw error;
+  }
+}
+
+/**
+ * Gets the flow intensity data from a Cosmos DB container
+ * 
+ * @param userId - The user ID to query for
+ * @param days - The number of days to query for
+ * @returns Promise resolving to the flow int data or null if none found
+ * @throws Error if configuration is invalid or database operation fails
+ */
+export async function getFlowIntensityData(userId: string, days: number) {
+  try {
+    const endDate = new Date().getTime();  // Current time in milliseconds
+    const startDate = new Date().getTime() - (days * 24 * 60 * 60 * 1000);  // Subtract days in milliseconds
+
+    // Get and validate configuration
+    const config = getCosmosConfig();
+      
+    // Initialize Cosmos client
+    const client = new CosmosClient({
+      endpoint: config.endpoint,
+      key: config.key
+    });
+
+    const database = client.database(config.databaseId);
+    const container = database.container(config.containerId);
+
+    const querySpec = {
+      query: "SELECT * FROM c WHERE c.userId = @userId AND c._ts >= @startDate AND c._ts <= @endDate",
+      parameters: [
+        { name: "@userId", value: userId },
+        { name: "@startDate", value: Math.floor(startDate / 1000) },  // Convert to seconds for _ts
+        { name: "@endDate", value: Math.floor(endDate / 1000) }
+      ]
+    };
+
+    const { resources } = await container.items.query(querySpec).fetchAll();
+    // console.log('Resources:', resources);
+    return resources;
+  } catch (error) {
+    console.error('Detailed error in getFlowActivityData:', error);
     throw error;
   }
 }

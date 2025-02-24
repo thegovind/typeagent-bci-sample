@@ -22,7 +22,7 @@ const BrainActivity = () => {
         })
         .then(response => response.json())
         .then(data => {
-          console.log('Most Recent Record:', data);
+          // console.log('Most Recent Record:', data);
           const updateIntensity = Math.floor(data['flowIntensityValues'][0])
           setFlowIntensity(updateIntensity);
           //no intensity data, generate random intensity
