@@ -127,13 +127,91 @@ const getLineColor = (dataset: Dataset): string => {
   }
 };
 
+/**
+ * Analyzes data points to find days with the most similar values
+ * @param data Array of data points with timestamps and values
+ * @param topCount Number of similar pairs to return
+ * @returns Array of most similar day pairs sorted by smallest difference
+ */
+const findMostSimilarDays = (data: DataPoint[] | ProcessedFlowData[], topCount: number = 3): Array<{
+  day1: string;
+  day2: string;
+  value1: number;
+  value2: number;
+  difference: number;
+}> => {
+  // Create all possible pairs of days
+  const pairs: Array<{
+    day1: string;
+    day2: string;
+    value1: number;
+    value2: number;
+    difference: number;
+  }> = [];
+
+  // Compare each day with every other day (only unique pairs)
+  for (let i = 0; i < data.length; i++) {
+    for (let j = i + 1; j < data.length; j++) {
+      const day1 = data[i].timestamp;
+      const day2 = data[j].timestamp;
+      const value1 = data[i].value;
+      const value2 = data[j].value;
+      const difference = Math.abs(value1 - value2);
+
+      pairs.push({
+        day1,
+        day2,
+        value1,
+        value2,
+        difference
+      });
+    }
+  }
+
+  // Sort pairs by smallest difference
+  const sortedPairs = [...pairs].sort((a, b) => a.difference - b.difference);
+
+  // Return top N most similar pairs
+  return sortedPairs.slice(0, topCount);
+};
+
+/**
+ * Performs comparative analysis on flowIntensity and heartRate data
+ * @param flowData Flow intensity data points
+ * @param heartRateData Heart rate data points
+ * @returns Analysis results for both datasets
+ */
+const performDualDatasetAnalysis = (
+  flowData: ProcessedFlowData[],
+  heartRateData: ProcessedFlowData[]
+) => {
+  const flowSimilarities = findMostSimilarDays(flowData);
+  const heartRateSimilarities = findMostSimilarDays(heartRateData);
+  
+  return {
+    flowIntensity: {
+      datasetName: "Flow Intensity",
+      color: "rgb(147, 51, 234)", // Purple
+      similarities: flowSimilarities
+    },
+    heartRate: {
+      datasetName: "Heart Rate",
+      color: "rgb(239, 68, 68)", // Red
+      similarities: heartRateSimilarities
+    }
+  };
+};
+
 const DataAnalysis = () => {
   const [selectedDataset, setSelectedDataset] = useState<Dataset>("flowIntensity");
   const [readingLevel, setReadingLevel] = useState<ReadingLevel>("college");
   const [actions, setActions] = useState<Array<{ id: string; type: string; description: string; timestamp: Date }>>([]);
   const { toast } = useToast();
   const [flowData, setFlowData] = useState<ProcessedFlowData[]>([]);
+  const [heartRateData, setHeartRateData] = useState<ProcessedFlowData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [showAnalysisResults, setShowAnalysisResults] = useState(false);
 
   const addAction = (type: string, description: string) => {
     const newAction = {
@@ -175,11 +253,19 @@ const DataAnalysis = () => {
         if (!response.ok) throw new Error('Failed to fetch flow data');
         
         const records: FlowRecord[] = await response.json();
-        const processedData = processFlowData(
-          records, 
-          selectedDataset === 'flowIntensity' ? 'flow' : 'heart'
-        );
-        setFlowData(processedData);
+        
+        // Process both flow and heart rate data
+        const processedFlowData = processFlowData(records, 'flow');
+        const processedHeartRateData = processFlowData(records, 'heart');
+        
+        setFlowData(processedFlowData);
+        setHeartRateData(processedHeartRateData);
+        
+        if (selectedDataset === 'flowIntensity') {
+          setFlowData(processedFlowData);
+        } else if (selectedDataset === 'heartRate') {
+          setHeartRateData(processedHeartRateData);
+        }
         
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -197,6 +283,34 @@ const DataAnalysis = () => {
       fetchFlowData();
     }
   }, [selectedDataset]);
+
+  const runSimilarityAnalysis = () => {
+    if (flowData.length < 2 || heartRateData.length < 2) {
+      toast({
+        title: "Insufficient Data",
+        description: "Need at least two days of data for comparison",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    addAction("processing", "Running similarity analysis...");
+    setIsLoading(true);
+    
+    // Simulate processing time
+    setTimeout(() => {
+      const results = performDualDatasetAnalysis(flowData, heartRateData);
+      setAnalysisResults(results);
+      setShowAnalysisResults(true);
+      setIsLoading(false);
+      addAction("complete", "Similarity analysis completed!");
+      
+      toast({
+        title: "Analysis Complete",
+        description: "Days with similar patterns identified",
+      });
+    }, 1000);
+  };
 
   const chartData = (selectedDataset === 'flowIntensity' || selectedDataset === 'heartRate') && flowData.length > 0
     ? flowData
@@ -253,6 +367,106 @@ const DataAnalysis = () => {
                   </div>
                 )}
               </div>
+
+              <div className="flex flex-col items-center space-y-2 border-t border-b py-4 border-sidebar-border">
+                <h3 className="text-lg font-medium">Data Similarity Analysis</h3>
+                <p className="text-sm text-muted-foreground text-center mb-2">
+                  Compare flow and heart rate patterns to find which days had similar brain activity
+                </p>
+                <Button 
+                  onClick={runSimilarityAnalysis}
+                  className="bg-accent hover:bg-accent/80 px-6 py-2 text-lg h-auto font-medium transition-all shadow-md hover:shadow-lg"
+                  size="lg"
+                  disabled={isLoading || !(flowData.length > 0 && heartRateData.length > 0)}
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="mr-2 h-5 w-5 animate-spin rounded-full border-2 border-background border-t-transparent"></div>
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        className="h-5 w-5 mr-2" 
+                        fill="none" 
+                        viewBox="0 0 24 24" 
+                        stroke="currentColor"
+                      >
+                        <path 
+                          strokeLinecap="round" 
+                          strokeLinejoin="round" 
+                          strokeWidth={2} 
+                          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" 
+                        />
+                      </svg>
+                      Find Similar Days
+                    </>
+                  )}
+                </Button>
+                {!(flowData.length > 0 && heartRateData.length > 0) && (
+                  <p className="text-xs text-muted-foreground italic">
+                    Select flow or heart rate data first to enable analysis
+                  </p>
+                )}
+              </div>
+
+              <AnimatePresence>
+                {showAnalysisResults && analysisResults && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="space-y-4"
+                  >
+                    <div className="flex justify-between items-center">
+                      <h2 className="text-lg font-semibold">Similarity Analysis Results</h2>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => setShowAnalysisResults(false)}
+                      >
+                        Hide
+                      </Button>
+                    </div>
+                    
+                    {Object.entries(analysisResults).map(([key, dataset]: [string, any]) => (
+                      <motion.div 
+                        key={key}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-4 bg-accent/10 rounded-lg"
+                      >
+                        <h3 className="font-medium mb-2" style={{ color: dataset.color }}>
+                          {dataset.datasetName} Patterns
+                        </h3>
+                        
+                        {dataset.similarities.length > 0 ? (
+                          <div className="space-y-2">
+                            {dataset.similarities.map((pair: any, index: number) => (
+                              <div key={index} className="flex items-center justify-between bg-background/50 p-3 rounded-md">
+                                <div className="flex-1">
+                                  <span className="font-medium">{pair.day1}</span> and <span className="font-medium">{pair.day2}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-sm">
+                                  <span>{pair.value1}</span>
+                                  <span>≈</span>
+                                  <span>{pair.value2}</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    (diff: {pair.difference.toFixed(1)})
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-muted-foreground text-sm">Not enough data available for comparison</p>
+                        )}
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
