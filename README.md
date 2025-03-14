@@ -15,6 +15,9 @@ This is an experimental project that combines:
 
 ![screenshot](./public/screenshot.png)
 
+## Example use case (golf)
+
+https://github.com/user-attachments/assets/2c194c40-8046-43b3-9faf-adbae6f28023
 
 ## Technologies Used
 
