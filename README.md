@@ -27,141 +27,91 @@ Below is a detailed architecture diagram showing how the various components of t
 
 ```mermaid
 flowchart LR
-    %% Define styles
-    classDef azureService fill:#0072C6,color:white,stroke:#0072C6,stroke-width:2px
-    classDef azureFoundry fill:#5E4DB2,color:white,stroke:#5E4DB2,stroke-width:2px
-    classDef inputSource fill:#7FBA00,color:white,stroke:#7FBA00,stroke-width:2px
-    classDef agent fill:#F25022,color:white,stroke:#F25022,stroke-width:2px
-    classDef subAgent fill:#FFB900,color:white,stroke:#FFB900,stroke-width:2px
-    classDef dataStore fill:#00BCF2,color:white,stroke:#00BCF2,stroke-width:2px
-    classDef outputAction fill:#B4A0FF,color:black,stroke:#8661C5,stroke-width:2px
-    classDef azureContainer fill:#0078D7,color:white,stroke:#0078D7,stroke-width:1px,stroke-dasharray: 5 5
-    classDef sportInput fill:#107C10,color:white,stroke:#107C10,stroke-width:2px
-    classDef model fill:#E3008C,color:white,stroke:#E3008C,stroke-width:2px
-
-    %% --- Input Sources Column ---
-    subgraph InputSources["Input Sources"]
-        direction TB
-        VI["🎤 Voice & Text Input"]:::inputSource
-        EM["📧 Email"]:::inputSource
-        TM["💬 Teams Message"]:::inputSource
-        TR["⏲️ Timer"]:::inputSource
-        BS["🧠 Biosensors\n(fNIRS, Audio, etc.)"]:::inputSource
-        PH["📱 Phone Gateway\n(Bluetooth/WiFi)"]:::inputSource
-        GH["🏌️ Golf Hat\n(Flow, Heart Rate)"]:::sportInput
+    %% Input Sources
+    subgraph Inputs[Input Sources]
+        Voice["Voice & Text"]
+        Email["Email"]
+        Teams["Teams Message"]
+        Timer["Timer"]
+        BCI["Brain Sensors (fNIRS)"]
+        Phone["Phone Gateway"]
+        Golf["Golf Hat Sensors"]
     end
-   
-    %% --- Azure Platform ---
-    subgraph AzurePlatform["Microsoft Azure Platform"]
-        direction TB
-       
-        %% --- Integration Services ---
-        subgraph IntegrationServices["Integration Services"]
-            direction TB
-            EG["⚡ Event Grid"]:::azureService
-            EH["🔄 Event Hubs\n(Kafka)"]:::azureService
-        end
-       
-        %% --- Agent System ---
-        subgraph AgentSystem["Agent System (Container Apps)"]
-            direction TB
-            MA["🤖 Meta Agent\npowered by Type Agent"]:::agent
-           
-            subgraph SubAgents["Sub-Agents"]
-                direction TB
-                DRA["📚 Deep Research Agent"]:::subAgent
-                DSA["🎨 Designer Agent"]:::subAgent
-                GMA["🧘 Guided Meditation Agent"]:::subAgent
-                EMA["📧 Email Agent"]:::subAgent
-                GSA["🏌️ Golf Stroke Analysis Agent"]:::subAgent
-            end
-        end
-       
-        %% --- Data & AI Services ---
-        subgraph DataAIServices["Data & AI Services"]
-            direction TB
-            CDB["🗄️ Cosmos DB"]:::dataStore
-           
-            subgraph AIServices["AI Services"]
-                direction TB
-                ACS["🔍 Azure AI Search"]:::azureService
-                AF["⚙️ Azure Functions"]:::azureService
-                AD["📊 Azure Data Explorer"]:::azureService
-            end
-           
-            subgraph AOAI_Service["Azure OpenAI Service"]
-                direction TB
-               
-                subgraph AOAI_Models["Models"]
-                    direction TB
-                    GPT4O["🔮 GPT-4o"]:::model
-                    O3MINI["⚡ o3-mini"]:::model
-                    D3["🎨 DALL-E 3"]:::model
-                end
-            end
-           
-            subgraph AIF["Azure AI Foundry"]
-                direction TB
-                AIAS["⚙️ AI Agent Service\n(Tools: Bing, Functions, Knowledge Retrieval)"]:::azureFoundry
-            end
+
+    %% Azure Integration Layer
+    subgraph Integration[Integration Layer]
+        EventGrid["Event Grid"]
+        EventHubs["Event Hubs"]
+    end
+
+    %% Main Agent System
+    subgraph Agents[Agent System]
+        MetaAgent["Meta Agent"]
+        subgraph SubAgents[Specialized Agents]
+            Research["Research Agent"]
+            Design["Design Agent"]
+            Meditation["Meditation Agent"]
+            EmailAgent["Email Agent"]
+            GolfAnalysis["Golf Analysis Agent"]
         end
     end
 
-    %% --- Outputs Column ---
-    subgraph Outputs["Generated Outputs"]
-        direction TB
-        RPT["📄 Research Report\n(Reading level adjusted by brain state)"]:::outputAction
-        DES["🖼️ AI-Generated Diagrams\n(Adjusted by brain state)"]:::outputAction
-        MED["🎵 Meditation Instructions & Music\n(Based on brain state)"]:::outputAction
-        COMM["📨 Communications\n(Emails, Messages)"]:::outputAction
-        GOLF["🏌️ Interactive Golf Dashboard\n(Flow & heart rate optimized swing analysis)"]:::outputAction
+    %% Data and AI Services
+    subgraph Services[Data & AI Services]
+        CosmosDB[(Cosmos DB)]
+        subgraph AI[AI Services]
+            Search["AI Search"]
+            Functions["Azure Functions"]
+            DataExplorer["Data Explorer"]
+        end
+        subgraph OpenAI[OpenAI Service]
+            GPT4["GPT-4"]
+            DALLE["DALL-E 3"]
+        end
+        AIFoundry["AI Agent Service"]
     end
 
-    %% --- Flow Connections ---
-    %% Input to Integration Services
-    VI --> MA
-    EM --> EG
-    TM --> EG
-    TR --> EG
-    BS --> PH
-    PH --> EH
-    GH --> EG
-   
-    %% Integration to Processing
-    EG --> MA
-    EH --> CDB
-   
-    %% Bidirectional flow with Cosmos DB
-    MA <--> CDB
-   
-    %% Meta Agent to Sub-Agents
-    MA --> DRA
-    MA --> DSA
-    MA --> GMA
-    MA --> EMA
-    MA --> GSA
-   
-    %% Sub-Agent connections to Azure Services
-    DRA --> AIAS
-    AIAS --> ACS
-    AIAS --> AF
-    DSA --> AOAI_Models
-    GMA --> AOAI_Models
-    GSA --> AD
-    GSA <--> CDB
-   
-    %% OpenAI model connections
-    DRA --> GPT4O
-   
-    %% Sub-Agents to Outputs
-    DRA ==> RPT
-    DSA ==> DES
-    GMA ==> MED
-    EMA ==> COMM
-    GSA ==> GOLF
+    %% Outputs
+    subgraph Outputs[Generated Outputs]
+        Reports["Research Reports"]
+        Diagrams["AI Diagrams"]
+        MeditationGuide["Meditation Guide"]
+        Comms["Communications"]
+        GolfDash["Golf Dashboard"]
+    end
 
-    %% Apply Azure container class
-    class AzurePlatform azureContainer
+    %% Connections
+    Voice --> MetaAgent
+    Email --> EventGrid
+    Teams --> EventGrid
+    Timer --> EventGrid
+    BCI --> Phone
+    Phone --> EventHubs
+    Golf --> EventGrid
+
+    EventGrid --> MetaAgent
+    EventHubs --> CosmosDB
+    MetaAgent <--> CosmosDB
+
+    MetaAgent --> Research
+    MetaAgent --> Design
+    MetaAgent --> Meditation
+    MetaAgent --> EmailAgent
+    MetaAgent --> GolfAnalysis
+
+    Research --> AIFoundry
+    AIFoundry --> Search
+    AIFoundry --> Functions
+    Design --> OpenAI
+    Meditation --> OpenAI
+    GolfAnalysis --> DataExplorer
+    GolfAnalysis <--> CosmosDB
+
+    Research --> Reports
+    Design --> Diagrams
+    Meditation --> MeditationGuide
+    EmailAgent --> Comms
+    GolfAnalysis --> GolfDash
 ```
 
 ### 🔍 Architecture Overview
