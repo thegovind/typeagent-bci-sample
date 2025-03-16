@@ -32,10 +32,10 @@ export interface FlowRecord {
 function getCosmosConfig(): CosmosConfig {
   // Get environment variables with type assertion
   const config = {
-    endpoint: process.env.COSMOS_DB_ENDPOINT ?? '',
-    key: process.env.COSMOS_DB_KEY ?? '',
-    databaseId: process.env.COSMOS_DB_DATABASE_ID ?? '',
-    containerId: process.env.COSMOS_DB_CONTAINER_ID ?? ''
+    endpoint: process.env.COSMOS_ENDPOINT ?? '',
+    key: process.env.COSMOS_KEY ?? '',
+    databaseId: process.env.COSMOS_DATABASE_ID ?? '',
+    containerId: process.env.COSMOS_CONTAINER_ID ?? ''
   };
 
   // Debug log all environment variables

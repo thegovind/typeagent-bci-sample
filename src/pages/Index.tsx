@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import DynamicSidebar from "@/components/DynamicSidebar";
-import { Brain, Heart, FileText, Layout, Cpu, MessageSquare, Settings } from "lucide-react";
+import { Brain, Flag, FileText, Layout, Cpu, MessageSquare, Settings, Image, Mail } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const actionTiles = [
@@ -40,19 +40,33 @@ const actionTiles = [
     path: "/chat"
   },
   {
+    title: "Golf Stroke Analysis",
+    description: "Analyze flow intensity and heart rate changes around golf strokes",
+    icon: Flag,
+    color: "bg-teal-500/10 text-teal-500",
+    path: "/golf-analysis"
+  },
+  {
+    title: "Image Generation",
+    description: "Generate AI diagrams and visuals based on brain state",
+    icon: Image,
+    color: "bg-indigo-500/10 text-indigo-500",
+    path: "/image-generation"
+  },
+  {
+    title: "Email Agent",
+    description: "Smart email communications optimized by brain activity patterns",
+    icon: Mail,
+    color: "bg-yellow-500/10 text-yellow-500",
+    path: "/email"
+  },
+  {
     title: "Settings",
     description: "Configure your BCI device (fNIRS) and personalization preferences",
     icon: Settings,
     color: "bg-gray-500/10 text-gray-500",
     path: "/settings"
-  },
-  {
-    title: "Golf Stroke Analysis",
-    description: "Analyze flow intensity and heart rate changes around golf strokes",
-    icon: Heart,
-    color: "bg-teal-500/10 text-teal-500",
-    path: "/golf-analysis"
-  },
+  }
 ];
 
 const Index = () => {
@@ -61,7 +75,7 @@ const Index = () => {
       <DynamicSidebar />
       <main className="flex-1 p-6 neural-bg">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-4xl font-bold mb-8">Personalize with BCI</h1>
+          <h1 className="text-4xl font-bold mb-8">Hyper-Personalize Your Experience with Brain-Computer Interface</h1>
           <p className="text-lg text-muted-foreground mb-8">
             Experience adaptive interfaces powered by your brain activity. Use voice commands or select a tool below to get started.
           </p>

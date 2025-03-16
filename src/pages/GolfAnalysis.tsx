@@ -96,9 +96,6 @@ var exampleStrokes: StrokeData[] = [
   }
 ];
 
-// Replace 'YOUR_AZURE_MAPS_SUBSCRIPTION_KEY' with your actual Azure Maps subscription key
-const AZURE_MAPS_SUBSCRIPTION_KEY = "rA1YINESC35rbFB0KSR0Za13OxwOdQuaeaOC0oJGkajZGDERhUURJQQJ99BBACYeBjFZrzWBAAAgAZMPT736 ";
-
 const fetchStrokeData = async (strokeId: string, strokeTimestamp: string): Promise<{ data: DataPoint[], strokeTime: string }> => {
   return new Promise((resolve) => {
     setTimeout(() => {
@@ -147,6 +144,7 @@ const GolfAnalysis = () => {
   const [selectedStrokeDetails, setSelectedStrokeDetails] = useState<string | null>(null);
   const [selectedStrokeId, setSelectedStrokeId] = useState<string | null>(null);
   const mapInitialized = useRef(false); // Ref to track map initialization
+  const [mapKey, setMapKey] = useState<string>('');
 
   // Automatically load the first stroke when the component mounts
   useEffect(() => {
@@ -225,21 +223,35 @@ const GolfAnalysis = () => {
     // Additional logic to handle stroke addition can be added here
   };
 
-  // Initialize the map
-  // Fetch Azure Maps token and initialize the map
+  // Add a new useEffect to fetch the Azure Maps key
   useEffect(() => {
-    if (mapInitialized.current) return; // Prevent re-initialization
+    const fetchMapKey = async () => {
+      try {
+        const response = await fetch('/api/getAzureMapsKey');
+        if (!response.ok) {
+          throw new Error('Failed to fetch Azure Maps key');
+        }
+        const data = await response.json();
+        setMapKey(data.key);
+      } catch (error) {
+        console.error('Error fetching Azure Maps key:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load Azure Maps key",
+          variant: "destructive",
+        });
+      }
+    };
+
+    fetchMapKey();
+  }, []);
+
+  // Update the map initialization useEffect
+  useEffect(() => {
+    if (mapInitialized.current || !mapKey) return; // Don't initialize without the key
 
     const initializeMap = async () => {
       try {
-        const response = await fetch('http://localhost:3000/api/getAzureMapsToken');
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const { token } = await response.json();
-
         const map = new atlas.Map('map', {
           center: [-82.02536, 33.49841],
           zoom: 15,
@@ -247,7 +259,7 @@ const GolfAnalysis = () => {
           enableAccessibility: false,
           authOptions: {
             authType: atlas.AuthenticationType.subscriptionKey,
-            subscriptionKey: token
+            subscriptionKey: mapKey
           },
           showLogo: false, // Hide the Azure Maps logo
           showFeedbackLink: false, // Hide the feedback link
@@ -410,7 +422,7 @@ const GolfAnalysis = () => {
     };
 
     initializeMap();
-  }, []); // Empty dependency array to run only once
+  }, [mapKey]);
 
   const minFlowIntensity = Math.min(...strokeData.map(d => d.flowIntensity));
   const maxFlowIntensity = Math.max(...strokeData.map(d => d.flowIntensity));

@@ -38,7 +38,7 @@ const app = express();
 
 // CORS configuration
 const corsOptions = {
-  origin: 'http://localhost:8080', // Your Vite frontend URL
+  origin: 'http://localhost:4517', // Updated Vite frontend URL
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true // Required for credentials mode 'include'
@@ -212,7 +212,7 @@ app.get('/api/getAzureMapsToken', (async (req: Request, res: Response) => {
 }) as RequestHandler);
 
 // Start the server
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 4518;
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
