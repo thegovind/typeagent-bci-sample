@@ -253,6 +253,9 @@ The following environment variables are required:
 
 - `NEXT_PUBLIC_AZURE_MAPS_SUBSCRIPTION_KEY`: Your Azure Maps subscription key
 
+<img src="public/blog_architecture.png" alt="Blog Architecture Diagram" width="30%" />
+
+
 ## 🤝 Contributing
 
 1. Create a feature branch
