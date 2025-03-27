@@ -25,6 +25,8 @@ https://github.com/user-attachments/assets/2c194c40-8046-43b3-9faf-adbae6f28023
 
 Below is a detailed architecture diagram showing how the various components of the system interact:
 
+<img src="public/blog_architecture.png" alt="Blog Architecture Diagram" width="50%" />
+
 ```mermaid
 flowchart LR
     %% Input Sources
@@ -252,8 +254,6 @@ Built with:
 The following environment variables are required:
 
 - `NEXT_PUBLIC_AZURE_MAPS_SUBSCRIPTION_KEY`: Your Azure Maps subscription key
-
-<img src="public/blog_architecture.png" alt="Blog Architecture Diagram" width="30%" />
 
 
 ## 🤝 Contributing
