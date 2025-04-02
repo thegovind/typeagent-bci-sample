@@ -43,12 +43,12 @@ interface EmotionAvatarProps {
 
 // Character emotion states definitions
 const emotionProperties = {
-  happy: { color: "#85C1E9", eyeSize: 18, mouthType: "smile", bodyBounce: 3 },
-  sad: { color: "#5BA5F5", eyeSize: 16, mouthType: "smallFrown", bodyBounce: -2 },
-  surprised: { color: "#B266FF", eyeSize: 20, mouthType: "o", bodyBounce: 4 },
-  neutral: { color: "#7DCFB6", eyeSize: 18, mouthType: "smallSmile", bodyBounce: 1 },
-  focused: { color: "#58D68D", eyeSize: 18, mouthType: "smile", bodyBounce: 2 },
-  stressed: { color: "#EC7063", eyeSize: 16, mouthType: "smallFrown", bodyBounce: -1 }
+  happy: { color: "#85C1E9", eyeSize: 18, mouthType: "smile", bodyBounce: 3, background: "sunny" },
+  sad: { color: "#5BA5F5", eyeSize: 16, mouthType: "smallFrown", bodyBounce: -2, background: "cloudy" },
+  surprised: { color: "#B266FF", eyeSize: 20, mouthType: "o", bodyBounce: 4, background: "clear" },
+  neutral: { color: "#7DCFB6", eyeSize: 18, mouthType: "smallSmile", bodyBounce: 1, background: "clear" },
+  focused: { color: "#58D68D", eyeSize: 18, mouthType: "smile", bodyBounce: 2, background: "sunny" },
+  stressed: { color: "#EC7063", eyeSize: 16, mouthType: "smallFrown", bodyBounce: -1, background: "cloudy" }
 };
 
 // Emotion descriptions for different states
@@ -84,6 +84,254 @@ const EmotionAvatar = ({
   const [currentEmotion, setCurrentEmotion] = useState<EmotionState>("neutral");
   const [emotionDescription, setEmotionDescription] = useState(emotionDescriptions.neutral);
   
+  // Helper to draw a simple cloud shape
+  const drawCloud = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, size: number) => {
+    // Get flow value for cloud fluffiness and density
+    const flowValue = typeof flowIntensity !== 'undefined' ? flowIntensity : 
+                     (flowStats ? flowStats.average : 50);
+    const flowNormalized = Math.min(Math.max(flowValue, 0), 100) / 100;
+    
+    // Cloud properties - fluffier with higher flow
+    const radius = size / 3;
+    const fluffiness = 0.8 + (flowNormalized * 0.4); // 0.8-1.2 range for bubble consistency
+    
+    // Time-based subtle movement for cloud
+    const time = Date.now() / 5000; // Slow movement
+    const driftX = Math.sin(time) * 2; // Slight horizontal drift
+    const driftY = Math.cos(time) * 1; // Very slight vertical drift
+    
+    // Start a new path for each cloud to ensure proper fill
+    ctx.beginPath();
+    
+    // Main cloud circle
+    ctx.arc(x + driftX, y + driftY, radius, 0, Math.PI * 2);
+    
+    // Additional circles for the fluffy cloud shape
+    ctx.arc(
+      x + radius * fluffiness + driftX, 
+      y - radius * 0.4 + driftY, 
+      radius * 0.9 * fluffiness, 
+      0, Math.PI * 2
+    );
+    ctx.arc(
+      x + radius * 1.6 * fluffiness + driftX, 
+      y + driftY, 
+      radius * 1.2 * fluffiness, 
+      0, Math.PI * 2
+    );
+    ctx.arc(
+      x + radius * 0.5 * fluffiness + driftX, 
+      y + radius * 0.4 + driftY, 
+      radius * 0.7 * fluffiness, 
+      0, Math.PI * 2
+    );
+    
+    // Add more detail based on flow intensity
+    if (flowNormalized > 0.5) {
+      // Add extra puffs for more detailed clouds when flow is higher
+      ctx.arc(
+        x - radius * 0.5 * fluffiness + driftX, 
+        y - radius * 0.3 + driftY, 
+        radius * 0.6 * fluffiness, 
+        0, Math.PI * 2
+      );
+      ctx.arc(
+        x + radius * 2.1 * fluffiness + driftX, 
+        y - radius * 0.2 + driftY, 
+        radius * 0.5 * fluffiness, 
+        0, Math.PI * 2
+      );
+    }
+    
+    ctx.fill();
+  }, [flowIntensity, flowStats]);
+  
+  // Helper to draw raindrops
+  const drawRaindrops = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number, count: number) => {
+    // Save current context state
+    ctx.save();
+    
+    // Get heart rate value for raindrop size and dynamism
+    const heartValue = heartRate || (heartRateStats ? heartRateStats.average : 75);
+    const heartNormalized = Math.min(Math.max(heartValue, 50), 100) / 100;
+    
+    // Raindrop size increases with heart rate
+    const dropSize = 3 + (heartNormalized * 3); // Size between 3-6 pixels
+    
+    // Raindrop color gets more intense blue with higher heart rate
+    const blueIntensity = Math.round(180 + (heartNormalized * 60)); // 180-240 range
+    ctx.fillStyle = `rgba(120, 160, ${blueIntensity}, 0.7)`;
+    
+    // Time-based animation offset (gives the raindrops a falling effect)
+    const time = Date.now() / 1000;
+    const speed = 1 + heartNormalized * 2; // Rain falls faster with higher heart rate
+    
+    for (let i = 0; i < count; i++) {
+      // Position with some randomness
+      const x = Math.random() * width;
+      const yBase = Math.random() * height;
+      
+      // Calculate vertical position with time-based offset for animation
+      // This creates an infinite falling effect - when drops go out of view they appear at the top
+      const y = (yBase + (time * speed * 50)) % height;
+      
+      // Draw raindrop shape - more elongated with higher heart rate
+      const stretch = 1 + heartNormalized;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.bezierCurveTo(
+        x - dropSize, y + dropSize * 2 * stretch,
+        x + dropSize, y + dropSize * 2 * stretch,
+        x, y + dropSize * 3 * stretch
+      );
+      ctx.fill();
+      
+      // Add tiny splash effect near bottom
+      if (y > height * 0.7 && y < height * 0.9) {
+        ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+        ctx.beginPath();
+        ctx.arc(x - dropSize, y + dropSize, dropSize / 2, 0, Math.PI * 2);
+        ctx.arc(x + dropSize, y + dropSize, dropSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `rgba(120, 160, ${blueIntensity}, 0.7)`;
+      }
+    }
+    
+    // Restore context to previous state
+    ctx.restore();
+  }, [heartRate, heartRateStats]);
+  
+  // Helper function to draw different background environments
+  const drawBackground = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number, backgroundType: string) => {
+    // No need to save/restore context or clear the canvas here since it's handled in drawAvatar
+    
+    // Create a gradient background
+    const bgGradient = ctx.createLinearGradient(0, 0, 0, height);
+    
+    // Get intensity values for dynamic background elements
+    // Higher flow intensity = brighter sun/fewer clouds
+    // Higher heart rate = more dynamic weather elements
+    const flowValue = typeof flowIntensity !== 'undefined' ? flowIntensity : 
+                      (flowStats ? flowStats.average : 50);
+    const heartValue = heartRate || (heartRateStats ? heartRateStats.average : 75);
+    
+    // Normalize values between 0-1 for easier calculations
+    const flowNormalized = Math.min(Math.max(flowValue, 0), 100) / 100;
+    const heartNormalized = Math.min(Math.max(heartValue, 50), 100) / 100;
+    
+    switch (backgroundType) {
+      case "sunny":
+        // Sunny day - bright blue sky with sun
+        // Flow intensity affects sky brightness
+        const skyBlue = Math.round(135 + (flowNormalized * 40)); // 135-175 range
+        bgGradient.addColorStop(0, `rgb(${skyBlue - 50}, ${skyBlue}, ${skyBlue + 35})`); // Sky blue, brighter with higher flow
+        bgGradient.addColorStop(1, `rgb(${skyBlue}, ${skyBlue + 30}, ${skyBlue + 45})`); // Lighter blue
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, width, height);
+        
+        // Draw sun - size and brightness based on flow intensity
+        const sunSize = width * (0.10 + (flowNormalized * 0.05)); // 10-15% of width
+        const sunBrightness = 215 + Math.round(flowNormalized * 40); // 215-255 brightness
+        
+        // Sun gradient for more realistic effect
+        const sunGradient = ctx.createRadialGradient(
+          width * 0.8, height * 0.2, 0,
+          width * 0.8, height * 0.2, sunSize
+        );
+        sunGradient.addColorStop(0, `rgb(${sunBrightness}, ${sunBrightness}, 50)`);
+        sunGradient.addColorStop(1, `rgb(${sunBrightness - 30}, ${sunBrightness - 50}, 0)`);
+        
+        ctx.fillStyle = sunGradient;
+        ctx.beginPath();
+        ctx.arc(width * 0.8, height * 0.2, sunSize, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw rays around sun based on heart rate
+        if (heartNormalized > 0.6) {
+          const rayCount = Math.round(5 + (heartNormalized * 7)); // 5-12 rays
+          ctx.strokeStyle = `rgba(${sunBrightness}, ${sunBrightness}, 100, 0.6)`;
+          ctx.lineWidth = 2 + (heartNormalized * 2);
+          
+          for (let i = 0; i < rayCount; i++) {
+            const angle = (i / rayCount) * Math.PI * 2;
+            const rayLength = sunSize * (1 + (heartNormalized * 0.5));
+            
+            ctx.beginPath();
+            ctx.moveTo(
+              width * 0.8 + Math.cos(angle) * sunSize,
+              height * 0.2 + Math.sin(angle) * sunSize
+            );
+            ctx.lineTo(
+              width * 0.8 + Math.cos(angle) * (sunSize + rayLength),
+              height * 0.2 + Math.sin(angle) * (sunSize + rayLength)
+            );
+            ctx.stroke();
+          }
+        }
+        
+        // Draw small clouds - fewer clouds with higher flow intensity
+        const cloudCount = Math.round(3 - (flowNormalized * 2)); // 1-3 clouds
+        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        
+        if (cloudCount > 0) {
+          drawCloud(ctx, width * 0.2, height * 0.15, width * 0.15);
+        }
+        if (cloudCount > 1) {
+          drawCloud(ctx, width * 0.5, height * 0.1, width * 0.12);
+        }
+        if (cloudCount > 2) {
+          drawCloud(ctx, width * 0.7, height * 0.25, width * 0.1);
+        }
+        break;
+        
+      case "cloudy":
+        // Cloudy/rainy day - grayish-blue sky with clouds
+        // Lower flow intensity means darker clouds
+        const grayLevel = Math.round(100 + (flowNormalized * 30)); // 100-130 range
+        bgGradient.addColorStop(0, `rgb(${grayLevel}, ${grayLevel + 10}, ${grayLevel + 20})`); // Slate gray
+        bgGradient.addColorStop(1, `rgb(${grayLevel + 30}, ${grayLevel + 40}, ${grayLevel + 50})`); // Lighter gray-blue
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, width, height);
+        
+        // Draw clouds - more clouds with lower flow intensity
+        const bigCloudCount = Math.round(2 + ((1 - flowNormalized) * 2)); // 2-4 clouds
+        const cloudDarkness = Math.round(200 + (flowNormalized * 30)); // Darker clouds with lower flow (200-230)
+        ctx.fillStyle = `rgb(${cloudDarkness}, ${cloudDarkness}, ${cloudDarkness})`;
+        
+        // Draw big clouds
+        drawCloud(ctx, width * 0.3, height * 0.2, width * (0.2 + ((1 - flowNormalized) * 0.1)));
+        drawCloud(ctx, width * 0.7, height * 0.15, width * (0.15 + ((1 - flowNormalized) * 0.1)));
+        
+        if (bigCloudCount > 2) {
+          drawCloud(ctx, width * 0.1, height * 0.3, width * 0.18);
+        }
+        if (bigCloudCount > 3) {
+          drawCloud(ctx, width * 0.5, height * 0.25, width * 0.2);
+        }
+        
+        // Draw raindrops - more rain with higher heart rate
+        const rainCount = Math.round(5 + (heartNormalized * 15)); // 5-20 raindrops
+        drawRaindrops(ctx, width, height, rainCount);
+        break;
+        
+      case "clear":
+      default:
+        // Light gradient background - intensity based on flow
+        const blueIntensity = Math.round(220 + (flowNormalized * 35)); // 220-255 range
+        bgGradient.addColorStop(0, `rgb(230, ${blueIntensity}, 255)`); // Very light blue
+        bgGradient.addColorStop(1, `rgb(240, ${blueIntensity}, 255)`); // Even lighter blue
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, width, height);
+        
+        // Add subtle clouds if heart rate is elevated
+        if (heartNormalized > 0.7) {
+          ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+          drawCloud(ctx, width * 0.8, height * 0.1, width * 0.1);
+        }
+        break;
+    }
+  }, [flowIntensity, heartRate, flowStats, heartRateStats]);
+  
   // Draw the avatar - called in a useEffect
   const drawAvatar = useCallback(() => {
     if (!canvasRef.current) return;
@@ -91,24 +339,30 @@ const EmotionAvatar = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Clear canvas with transparent background
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Get canvas dimensions
+    const width = canvas.width;
+    const height = canvas.height;
+    const centerX = width / 2;
+    
+    // Scale factor for avatar
+    const scale = width / 250;
     
     // Determine current properties based on emotion
     const props = emotionProperties[currentEmotion];
     const bounce = props.bodyBounce;
     
-    const width = canvas.width;
-    const height = canvas.height;
-    const centerX = width / 2;
-    
-    // Scale factor for larger avatar
-    const scale = width / 250;
-    
     // Adjust vertical position to center the face
     const verticalPos = height / 2 - 10;
     
-    // Draw character
+    // Clear the entire canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // 1. Draw background first
+    const backgroundType = props.background || "clear";
+    drawBackground(ctx, width, height, backgroundType);
+    
+    // 2. Draw the character on top of the background
+    
     // Head (Round face)
     ctx.fillStyle = props.color;
     ctx.strokeStyle = "#1E1E1E";
@@ -198,8 +452,9 @@ const EmotionAvatar = ({
     ctx.fill();
     ctx.globalAlpha = 1;
     
+    // Request next animation frame
     animationRef.current = requestAnimationFrame(drawAvatar);
-  }, [currentEmotion]);
+  }, [currentEmotion, drawBackground, drawCloud, drawRaindrops]);
   
   // Process data and update emotional state - only if no direct emotion is provided
   useEffect(() => {
@@ -285,7 +540,8 @@ const EmotionAvatar = ({
         ref={canvasRef}
         width={width}
         height={height}
-        className="border border-sidebar-border rounded-md"
+        className="border border-sidebar-border rounded-md bg-transparent"
+        style={{ display: 'block' }}
       />
       {showLabel && (
         <p className="text-xs text-center text-muted-foreground">

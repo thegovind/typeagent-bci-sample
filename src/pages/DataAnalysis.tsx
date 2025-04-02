@@ -363,7 +363,7 @@ const analyzeDailyData = (
     
     const variance = validValues.reduce((acc, val) => acc + Math.pow(val - avg, 2), 0) / validValues.length;
     const deviation = Math.sqrt(variance);
-    const stability = Math.max(0, 100 - (deviation * 10));
+    const stability = Math.max(0, 100 - (deviation * 3));
 
     // Find outliers (values more than 2 standard deviations from mean)
     const outliers = intervals
