@@ -1,9 +1,8 @@
-
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import BrainActivity from "./BrainActivity";
+import BloodFlowActivity from "./BloodFlowActivity";
 import VoiceInterface from "./VoiceInterface";
 
 const DynamicSidebar = () => {
@@ -37,7 +36,7 @@ const DynamicSidebar = () => {
             className="space-y-6"
           >
             <VoiceInterface />
-            <BrainActivity />
+            <BloodFlowActivity />
           </motion.div>
         )}
 

@@ -38,7 +38,7 @@ const app = express();
 
 // CORS configuration
 const corsOptions = {
-  origin: 'http://localhost:4517', // Updated Vite frontend URL
+  origin: 'http://localhost:8080', // Your Vite frontend URL
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true // Required for credentials mode 'include'
@@ -147,7 +147,8 @@ app.post('/api/task', async (req: Request, res: Response) => {
  */
 app.post('/api/getMostRecentRecord', async (req: Request, res: Response) => {
   try {
-    const userId = "A6BC96AF-E53F-4C57-8D5A-88F1D7BCB1AD";
+    //6GUfarBavscMlw8M6EKS4wEVgx03, A6BC96AF-E53F-4C57-8D5A-88F1D7BCB1AD
+    const userId = "6GUfarBavscMlw8M6EKS4wEVgx03";
     const document = await getMostRecentDocument(userId);
     
     if (document) {
@@ -170,7 +171,8 @@ app.post('/api/getMostRecentRecord', async (req: Request, res: Response) => {
  */
 app.post('/api/getFlowIntensityData', (async (req: Request, res: Response) => {
   try {
-    const userId = "A6BC96AF-E53F-4C57-8D5A-88F1D7BCB1AD";
+    //6GUfarBavscMlw8M6EKS4wEVgx03, A6BC96AF-E53F-4C57-8D5A-88F1D7BCB1AD
+    const userId = "6GUfarBavscMlw8M6EKS4wEVgx03";
     const { days } = req.body;
 
     if (!userId || !days) {
@@ -212,7 +214,7 @@ app.get('/api/getAzureMapsToken', (async (req: Request, res: Response) => {
 }) as RequestHandler);
 
 // Start the server
-const port = process.env.PORT || 4518;
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });

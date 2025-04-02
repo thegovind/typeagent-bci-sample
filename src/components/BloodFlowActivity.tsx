@@ -1,93 +1,53 @@
 import { motion, animate } from "framer-motion";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { WifiIcon, AlertCircle } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { WifiIcon } from "lucide-react";
+import EmotionAvatar from "@/components/ui/EmotionAvatar";
 
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000; // 2 seconds
-
-interface BrainActivityRecord {
-  timestamp: string;
-  flowIntensity: number;
-  heartRate: number;
-  flowIntensityValues?: number[];
-}
-
-const BrainActivity = () => {
+const BloodFlowActivity = () => {
   const [selectedActivity, setSelectedActivity] = useState<string>("working");
   const [selectedLocation, setSelectedLocation] = useState<string>("office");
   const [flowIntensity, setFlowIntensity] = useState(0);
-  const [isConnected, setIsConnected] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
-  const [retryCount, setRetryCount] = useState(0);
-  const { toast } = useToast();
+  const [heartRate, setHeartRate] = useState(75); // Default heart rate
+  const isConnected = true;
 
-  const fetchBrainActivity = useCallback(async (attempt = 0) => {
-    try {
-      const response = await fetch('http://localhost:4518/api/getMostRecentRecord', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data: BrainActivityRecord = await response.json();
-      
-      // Try to get flow intensity from either flowIntensityValues array or flowIntensity field
-      const updateIntensity = data.flowIntensityValues?.[0] ?? data.flowIntensity ?? 0;
-      
-      setFlowIntensity(updateIntensity || Math.floor(Math.random() * (85 - 15) + 15));
-      setIsConnected(true);
-      setIsLoading(false);
-      setRetryCount(0);
-    } catch (error) {
-      console.error('Error fetching brain activity:', error);
-      setIsConnected(false);
-      
-      if (attempt < MAX_RETRIES) {
-        toast({
-          title: "Connection Error",
-          description: `Retrying connection... (Attempt ${attempt + 1}/${MAX_RETRIES})`,
-          variant: "destructive",
-        });
-        
-        setTimeout(() => {
-          fetchBrainActivity(attempt + 1);
-        }, RETRY_DELAY * (attempt + 1)); // Exponential backoff
-        
-        setRetryCount(attempt + 1);
-      } else {
-        setIsLoading(false);
-        toast({
-          title: "Connection Failed",
-          description: "Could not connect to brain activity monitor. Using simulated data.",
-          variant: "destructive",
-        });
-        
-        // Fallback to random data
-        setFlowIntensity(Math.floor(Math.random() * (85 - 15) + 15));
-      }
-    }
-  }, [toast]);
-
+  // Periodically update flow intensity
   useEffect(() => {
-    // Initial fetch
-    fetchBrainActivity();
-
-    // Set up polling interval
     const interval = setInterval(() => {
-      if (!isLoading) { // Only fetch if not currently loading
-        fetchBrainActivity();
-      }
+      fetch('http://localhost:3000/api/getMostRecentRecord', {
+          method: 'POST',
+          credentials: 'include', // Add this if you enabled credentials in corsOptions
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          // console.log('Most Recent Record:', data);
+          const updateIntensity = Math.floor(data['flowIntensityValues'][0])
+          setFlowIntensity(updateIntensity);
+          
+          // Update heart rate if available
+          if (data['heartRateValues'] && data['heartRateValues'].length > 0) {
+            setHeartRate(Math.floor(data['heartRateValues'][0]));
+          } else {
+            // Generate random heart rate if not available
+            setHeartRate(Math.floor(Math.random() * (85 - 65) + 65)); // Random value between 65-85
+          }
+          
+          //no intensity data, generate random intensity
+          if (updateIntensity === 0) {
+            const newIntensity = Math.floor(Math.random() * (85 - 15) + 15); // Random value between 15-85
+            setFlowIntensity(newIntensity);
+          }
+        })
+        .catch(error => { 
+          console.error('Error fetching most recent record:', error);
+        });
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [fetchBrainActivity, isLoading]);
+  }, []);
 
   const circumference = 2 * Math.PI * 120;
   const offset = circumference - (flowIntensity / 100) * circumference;
@@ -95,25 +55,13 @@ const BrainActivity = () => {
   return (
     <div className="p-4 border border-sidebar-border rounded-lg bg-sidebar-background/50">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold">Brain Activity Monitor</h3>
-        <div className="flex items-center gap-1 text-xs">
-          {isLoading ? (
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <div className="animate-spin h-3 w-3 border border-current rounded-full border-t-transparent" />
-              <span>Connecting...</span>
-            </div>
-          ) : isConnected ? (
-            <div className="flex items-center gap-1 text-accent">
-              <WifiIcon className="h-3 w-3" />
-              <span>Connected</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1 text-destructive">
-              <AlertCircle className="h-3 w-3" />
-              <span>Disconnected</span>
-            </div>
-          )}
-        </div>
+        <h3 className="text-sm font-semibold">Blood Flow Activity</h3>
+        {isConnected && (
+          <div className="flex items-center gap-1 text-xs text-accent">
+            <WifiIcon className="h-3 w-3" />
+            <span>Connected</span>
+          </div>
+        )}
       </div>
       
       <div className="space-y-6">
@@ -147,7 +95,7 @@ const BrainActivity = () => {
           </svg>
           <div className="absolute flex flex-col items-center">
             <motion.span 
-              className={`text-4xl font-bold ${isConnected ? 'text-accent' : 'text-muted-foreground'}`}
+              className="text-4xl font-bold text-accent"
               key={flowIntensity}
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -156,13 +104,18 @@ const BrainActivity = () => {
               {flowIntensity}%
             </motion.span>
             <span className="text-sm text-muted-foreground">flow intensity</span>
-            {!isConnected && (
-              <span className="text-xs text-destructive mt-1">(Simulated Data)</span>
-            )}
           </div>
         </div>
 
-        <div>
+        {/* Emotional Avatar */}
+        <div className="border-t border-sidebar-border pt-4">
+          <EmotionAvatar 
+            flowIntensity={flowIntensity} 
+            heartRate={heartRate} 
+          />
+        </div>
+
+        <div className="space-y-4">
           <div className="text-xs text-muted-foreground mb-2">Activity Context</div>
           <div className="grid grid-cols-2 gap-2">
             {["meeting", "working", "talking", "phone"].map((activity) => (
@@ -179,7 +132,7 @@ const BrainActivity = () => {
           </div>
         </div>
 
-        <div>
+        <div className="space-y-4">
           <div className="text-xs text-muted-foreground mb-2">Location Context</div>
           <div className="grid grid-cols-2 gap-2">
             {["home", "office", "gym", "outdoor"].map((location) => (
@@ -211,4 +164,4 @@ const BrainActivity = () => {
   );
 };
 
-export default BrainActivity;
+export default BloodFlowActivity;
