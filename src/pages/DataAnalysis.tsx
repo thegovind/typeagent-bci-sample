@@ -1,15 +1,17 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import DynamicSidebar from "@/components/DynamicSidebar";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area } from 'recharts';
+import EmotionAvatar, { EmotionState } from "@/components/ui/EmotionAvatar";
+import EmotionTimeline from "@/components/ui/EmotionTimeline";
 
 type ReadingLevel = "eli5" | "eli15" | "high-school" | "college" | "phd";
-type Dataset = "productivity" | "flowIntensity" | "heartRate" | "stress" | "learning";
+type Dataset = "productivity" | "flowIntensity" | "heartRate" | "stress" | "learning" | "flowAndHeart";
 
 interface DataPoint {
   timestamp: string;
@@ -19,14 +21,64 @@ interface DataPoint {
 interface FlowRecord {
   userId: string;
   _ts: number;  // epoch timestamp in seconds
-  flowIntensityValues: number[];
+  flowActivityValues: number[];
   heartRateValues: number[];  // Add heart rate values
+  frustratedIndicatorValue?: number[];
+  excitedIndicatorValue?: number[];
+  calmIndicatorValue?: number[];
 }
 
+// Corrected type: Only timestamp and average value for weekly chart
 interface ProcessedFlowData {
   timestamp: string;
   value: number;
 }
+
+interface RawDataPoint {
+  timestamp: string;
+  value: number;
+}
+
+interface IntervalData {
+  timestamp: string;
+  min: number;
+  max: number;
+  average: number;
+}
+
+interface DailyInsights {
+  flowIntensity: {
+    average: number;
+    peak: number;
+    low: number;
+    stability: number; // 0-100, higher means more stable
+    peakTime: string;
+    lowTime: string;
+    deviation: number;
+    outliers: { value: number; time: string }[];
+  };
+  heartRate: {
+    average: number;
+    peak: number;
+    low: number;
+    stability: number;
+    peakTime: string;
+    lowTime: string;
+    deviation: number;
+    outliers: { value: number; time: string }[];
+  };
+  correlation: number; // -1 to 1, correlation between flow and heart rate
+  keyInsights: string[];
+  frustratedIndicatorValue?: number; 
+  excitedIndicatorValue?: number; 
+  calmIndicatorValue?: number; 
+  calmIntervals: IntervalData[];
+  frustratedIntervals: IntervalData[];
+  excitedIntervals: IntervalData[];
+}
+
+// Add type for raw indicator data points (same structure as RawDataPoint)
+type RawIndicatorPoint = RawDataPoint;
 
 const SAMPLE_DATA: Record<Dataset, { data: DataPoint[], description: Record<ReadingLevel, string> }> = {
   productivity: {
@@ -94,6 +146,19 @@ const SAMPLE_DATA: Record<Dataset, { data: DataPoint[], description: Record<Read
       phd: "Cognitive acquisition metrics reveal optimized neural plasticity with enhanced synaptic consolidation patterns.",
     }
   },
+  flowAndHeart: {
+    data: Array.from({ length: 7 }, (_, i) => ({
+      timestamp: `Day ${i + 1}`,
+      value: Math.floor(Math.random() * 30) + 70,
+    })),
+    description: {
+      eli5: "Your brain and heart worked together like a well-oiled machine!",
+      eli15: "Your flow and heart rate patterns show strong coordination between mental and physical states.",
+      "high-school": "Analysis reveals synchronized patterns between cognitive flow and cardiovascular activity.",
+      college: "Data indicates optimal coordination between mental engagement and physiological responses.",
+      phd: "Quantitative assessment demonstrates strong neuro-cardiac coupling with optimal performance states.",
+    }
+  },
 };
 
 const processFlowData = (records: FlowRecord[], dataType: 'flow' | 'heart'): ProcessedFlowData[] => {
@@ -103,17 +168,81 @@ const processFlowData = (records: FlowRecord[], dataType: 'flow' | 'heart'): Pro
       acc[date] = { sum: 0, count: 0 };
     }
     const value = dataType === 'flow' 
-      ? (record.flowIntensityValues[0] || 0)
+      ? (record.flowActivityValues[0] || 0)
       : (record.heartRateValues[0] || 0);
-    acc[date].sum += value;
-    acc[date].count += 1;
+    if (value > 0) {
+      acc[date].sum += value;
+      acc[date].count += 1;
+    }
     return acc;
   }, {} as Record<string, { sum: number; count: number }>);
 
   return Object.entries(dailyAverages).map(([date, { sum, count }]) => ({
     timestamp: date,
-    value: Math.round(sum / count),
+    value: count > 0 ? Math.round(sum / count) : 0,
   }));
+};
+
+const processRawData = (records: FlowRecord[], dataType: 'flow' | 'heart'): RawDataPoint[] => {
+  return records.flatMap(record => {
+    const values = dataType === 'flow' ? record.flowActivityValues : record.heartRateValues;
+    return values.map((value, index) => ({
+      timestamp: new Date(record._ts * 1000).toISOString(),
+      value: value
+    }));
+  });
+};
+
+const processIndicatorData = (records: FlowRecord[], indicatorType: 'frustrated' | 'excited' | 'calm'): RawIndicatorPoint[] => {
+  return records.flatMap(record => {
+    let values: number[] | undefined;
+    switch (indicatorType) {
+      case 'frustrated': values = record.frustratedIndicatorValue; break;
+      case 'excited': values = record.excitedIndicatorValue; break;
+      case 'calm': values = record.calmIndicatorValue; break;
+    }
+    // Only map if values exist and are not empty
+    return values && values.length > 0 ? values.map((value, index) => ({
+      timestamp: new Date(record._ts * 1000).toISOString(), // Associate with the main timestamp
+      value: value*100
+    })) : [];
+  });
+};
+
+const processIntervalData = (data: RawDataPoint[] | RawIndicatorPoint[], intervalMinutes: number = 5): IntervalData[] => {
+  const intervals: { [key: string]: number[] } = {};
+  
+  data.forEach(point => {
+    const date = new Date(point.timestamp);
+    date.setMinutes(Math.floor(date.getMinutes() / intervalMinutes) * intervalMinutes);
+    date.setSeconds(0);
+    date.setMilliseconds(0);
+    
+    const key = date.toISOString();
+    if (!intervals[key]) {
+      intervals[key] = [];
+    }
+    if (point.value > 0) {
+      intervals[key].push(point.value);
+    }
+  });
+
+  return Object.entries(intervals).map(([timestamp, values]) => {
+    if (values.length === 0) {
+      return {
+        timestamp,
+        min: 0,
+        max: 0,
+        average: 0
+      };
+    }
+    return {
+      timestamp,
+      min: Math.min(...values),
+      max: Math.max(...values),
+      average: values.reduce((a, b) => a + b, 0) / values.length
+    };
+  }).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
 const getLineColor = (dataset: Dataset): string => {
@@ -202,16 +331,277 @@ const performDualDatasetAnalysis = (
   };
 };
 
+const calculateCorrelation = (x: number[], y: number[]): number => {
+  const n = x.length;
+  const sumX = x.reduce((a, b) => a + b, 0);
+  const sumY = y.reduce((a, b) => a + b, 0);
+  const sumXY = x.reduce((a, b, i) => a + b * y[i], 0);
+  const sumX2 = x.reduce((a, b) => a + b * b, 0);
+  const sumY2 = y.reduce((a, b) => a + b * b, 0);
+
+  const numerator = n * sumXY - sumX * sumY;
+  const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+
+  return denominator === 0 ? 0 : numerator / denominator;
+};
+
+const formatTime = (dateString: string) => {
+  return new Date(dateString).toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+const analyzeDailyData = (
+  rawFlowData: RawDataPoint[],
+  rawHeartRateData: RawDataPoint[],
+  rawFrustratedData: RawIndicatorPoint[],
+  rawExcitedData: RawIndicatorPoint[],
+  rawCalmData: RawIndicatorPoint[],
+  day: string
+): DailyInsights => {
+  const dailyFlow = rawFlowData.filter(point => 
+    new Date(point.timestamp).toDateString() === new Date(day).toDateString()
+  );
+  const dailyHeartRate = rawHeartRateData.filter(point => 
+    new Date(point.timestamp).toDateString() === new Date(day).toDateString()
+  );
+  const dailyFrustrated = rawFrustratedData.filter(point => 
+    new Date(point.timestamp).toDateString() === new Date(day).toDateString()
+  );
+  const dailyExcited = rawExcitedData.filter(point => 
+    new Date(point.timestamp).toDateString() === new Date(day).toDateString()
+  );
+  const dailyCalm = rawCalmData.filter(point => 
+    new Date(point.timestamp).toDateString() === new Date(day).toDateString()
+  );
+
+  // Process data in 5-minute intervals
+  const flowIntervals = processIntervalData(dailyFlow, 5);
+  const heartRateIntervals = processIntervalData(dailyHeartRate, 5);
+  const calmIntervals = processIntervalData(dailyCalm, 5);
+  const frustratedIntervals = processIntervalData(dailyFrustrated, 5);
+  const excitedIntervals = processIntervalData(dailyExcited, 5);
+
+  const calculateStats = (intervals: IntervalData[]) => {
+    const validValues = intervals.map(d => d.average).filter(v => v > 0);
+    const validTimestamps = intervals.filter(d => d.average > 0).map(d => d.timestamp);
+    
+    if (validValues.length === 0) {
+      return {
+        average: 0,
+        peak: 0,
+        low: 0,
+        stability: 0,
+        peakTime: '',
+        lowTime: '',
+        deviation: 0,
+        outliers: []
+      };
+    }
+
+    const avg = validValues.reduce((a, b) => a + b, 0) / validValues.length;
+    const max = Math.max(...validValues);
+    const min = Math.min(...validValues);
+    const maxIndex = validValues.indexOf(max);
+    const minIndex = validValues.indexOf(min);
+    
+    const variance = validValues.reduce((acc, val) => acc + Math.pow(val - avg, 2), 0) / validValues.length;
+    const deviation = Math.sqrt(variance);
+    const stability = Math.max(0, 100 - (deviation * 3));
+
+    // Find outliers (values more than 2 standard deviations from mean)
+    const outliers = intervals
+      .filter(d => d.average > 0)
+      .filter(d => Math.abs(d.average - avg) > 2 * deviation)
+      .map(d => ({
+        value: d.average,
+        time: formatTime(d.timestamp)
+      }));
+
+    return {
+      average: Math.round(avg),
+      peak: max,
+      low: min,
+      stability: Math.round(stability),
+      peakTime: validTimestamps[maxIndex],
+      lowTime: validTimestamps[minIndex],
+      deviation: Math.round(deviation),
+      outliers
+    };
+  };
+
+  const flowStats = calculateStats(flowIntervals);
+  const heartRateStats = calculateStats(heartRateIntervals);
+
+  const correlation = calculateCorrelation(
+    flowIntervals.map(d => d.average),
+    heartRateIntervals.map(d => d.average)
+  );
+
+  const keyInsights: string[] = [];
+  
+  // Flow intensity insights with integer values and timing
+  if (flowStats.peak > 80) {
+    keyInsights.push(`Peak flow intensity of ${Math.round(flowStats.peak)}% at ${formatTime(flowStats.peakTime)}`);
+  }
+  if (flowStats.stability > 80) {
+    keyInsights.push(`Very stable flow state with ${flowStats.stability}% consistency`);
+  }
+  if (flowStats.outliers.length > 0) {
+    const outlierTimes = flowStats.outliers.map(o => `${Math.round(o.value)}% at ${o.time}`).join(', ');
+    keyInsights.push(`Notable flow intensity spikes: ${outlierTimes}`);
+  }
+  
+  // Heart rate insights with timing
+  if (heartRateStats.peak > 90) {
+    keyInsights.push(`Notable heart rate peak of ${Math.round(heartRateStats.peak)} bpm at ${formatTime(heartRateStats.peakTime)}`);
+  }
+  if (heartRateStats.stability > 80) {
+    keyInsights.push(`Consistent heart rate patterns with ${heartRateStats.stability}% stability`);
+  }
+  if (heartRateStats.outliers.length > 0) {
+    const outlierTimes = heartRateStats.outliers.map(o => `${Math.round(o.value)} bpm at ${o.time}`).join(', ');
+    keyInsights.push(`Notable heart rate variations: ${outlierTimes}`);
+  }
+
+  // Add deviation information
+  keyInsights.push(`Flow intensity deviation: ${flowStats.deviation} points`);
+  keyInsights.push(`Heart rate deviation: ${heartRateStats.deviation} bpm`);
+  
+  // Correlation insights with more detail
+  if (Math.abs(correlation) > 0.7) {
+    keyInsights.push(
+      correlation > 0 
+        ? `Strong positive correlation (${correlation.toFixed(2)}) between flow and heart rate`
+        : `Strong negative correlation (${correlation.toFixed(2)}) between flow and heart rate`
+    );
+  } else if (Math.abs(correlation) > 0.3) {
+    keyInsights.push(
+      correlation > 0 
+        ? `Moderate positive correlation (${correlation.toFixed(2)}) between flow and heart rate`
+        : `Moderate negative correlation (${correlation.toFixed(2)}) between flow and heart rate`
+    );
+  } else {
+    keyInsights.push(`Weak correlation (${correlation.toFixed(2)}) between flow and heart rate`);
+  }
+
+  // Break time suggestions
+  const flowPeakTime = new Date(flowStats.peakTime);
+  const heartRatePeakTime = new Date(heartRateStats.peakTime);
+  const timeDiff = Math.abs(flowPeakTime.getTime() - heartRatePeakTime.getTime()) / (1000 * 60);
+  
+  if (timeDiff < 30) {
+    const breakTime = new Date(flowPeakTime.getTime() + 45 * 60000);
+    keyInsights.push(`Consider taking a 15-minute break around ${formatTime(breakTime.toISOString())} after your peak performance period`);
+  } else {
+    keyInsights.push(`Consider taking breaks after peak periods: around ${formatTime(flowPeakTime.toISOString())} and ${formatTime(heartRatePeakTime.toISOString())}`);
+  }
+
+  // Water intake suggestions
+  const avgFlow = flowStats.average;
+  const avgHeartRate = heartRateStats.average;
+  let baseIntake = 2; // Base 2L per day
+  
+  if (avgFlow > 80) {
+    baseIntake += 0.5;
+  } else if (avgFlow > 60) {
+    baseIntake += 0.3;
+  }
+  
+  if (avgHeartRate > 80) {
+    baseIntake += 0.5;
+  } else if (avgHeartRate > 70) {
+    baseIntake += 0.3;
+  }
+  
+  keyInsights.push(`Recommended water intake: ${baseIntake.toFixed(1)}L based on your activity levels`);
+
+  // --- Calculate final indicators: Use raw data if available, else use heuristics ---
+  
+  // Function to calculate average from raw daily indicator points
+  const getAverageIndicator = (dailyIndicatorData: RawIndicatorPoint[]): number | null => {
+    const validValues = dailyIndicatorData.map(p => p.value).filter(v => typeof v === 'number');
+    if (validValues.length === 0) return null;
+    return validValues.reduce((a, b) => a + b, 0) / validValues.length;
+  };
+
+  const avgFrustratedRaw = getAverageIndicator(dailyFrustrated);
+  const avgExcitedRaw = getAverageIndicator(dailyExcited);
+  const avgCalmRaw = getAverageIndicator(dailyCalm);
+
+  let finalFrustratedIndicator: number;
+  let finalExcitedIndicator: number;
+  let finalCalmIndicator: number;
+
+  // Use raw average if available, otherwise calculate heuristic
+  if (avgFrustratedRaw !== null) {
+    finalFrustratedIndicator = avgFrustratedRaw;
+  } else {
+    let frustratedHeuristic = 0;
+    if (flowStats.stability < 40 && heartRateStats.stability > 60) frustratedHeuristic += 30;
+    if (flowStats.average < 40 && heartRateStats.average > 85) frustratedHeuristic += 30;
+    if (correlation < -0.5) frustratedHeuristic += 40;
+    finalFrustratedIndicator = Math.min(100, frustratedHeuristic * 1.5); 
+  }
+
+  if (avgExcitedRaw !== null) {
+    finalExcitedIndicator = avgExcitedRaw;
+  } else {
+    let excitedHeuristic = 0;
+    if (flowStats.average > 75) excitedHeuristic += 40;
+    if (flowStats.peak > 85) excitedHeuristic += 20;
+    if (heartRateStats.average > 80) excitedHeuristic += 20;
+    if (heartRateStats.peak > 95) excitedHeuristic += 20;
+    finalExcitedIndicator = Math.min(100, excitedHeuristic); 
+  }
+
+  if (avgCalmRaw !== null) {
+    finalCalmIndicator = avgCalmRaw;
+  } else {
+    let calmHeuristic = 0;
+    if (flowStats.average < 50 && heartRateStats.average < 70) calmHeuristic += 40;
+    if (flowStats.stability > 70) calmHeuristic += 30;
+    if (heartRateStats.stability > 70) calmHeuristic += 30;
+    finalCalmIndicator = Math.min(100, calmHeuristic);
+  }
+  
+  return {
+    flowIntensity: flowStats,
+    heartRate: heartRateStats,
+    correlation,
+    keyInsights,
+    frustratedIndicatorValue: Math.round(finalFrustratedIndicator),
+    excitedIndicatorValue: Math.round(finalExcitedIndicator),
+    calmIndicatorValue: Math.round(finalCalmIndicator),
+    calmIntervals: calmIntervals,
+    frustratedIntervals: frustratedIntervals,
+    excitedIntervals: excitedIntervals,
+  };
+};
+
 const DataAnalysis = () => {
   const [selectedDataset, setSelectedDataset] = useState<Dataset>("flowIntensity");
   const [readingLevel, setReadingLevel] = useState<ReadingLevel>("college");
+  const [selectedDay, setSelectedDay] = useState<string>(new Date().toLocaleDateString());
+  const [viewMode, setViewMode] = useState<'weekly' | 'daily'>('daily');
   const [actions, setActions] = useState<Array<{ id: string; type: string; description: string; timestamp: Date }>>([]);
   const { toast } = useToast();
   const [flowData, setFlowData] = useState<ProcessedFlowData[]>([]);
   const [heartRateData, setHeartRateData] = useState<ProcessedFlowData[]>([]);
+  const [rawFlowData, setRawFlowData] = useState<RawDataPoint[]>([]);
+  const [rawHeartRateData, setRawHeartRateData] = useState<RawDataPoint[]>([]);
+  const [rawFrustratedData, setRawFrustratedData] = useState<RawIndicatorPoint[]>([]);
+  const [rawExcitedData, setRawExcitedData] = useState<RawIndicatorPoint[]>([]);
+  const [rawCalmData, setRawCalmData] = useState<RawIndicatorPoint[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isTimelineLoading, setIsTimelineLoading] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
   const [showAnalysisResults, setShowAnalysisResults] = useState(false);
+  const [dailyInsights, setDailyInsights] = useState<DailyInsights | null>(null);
+  const [currentFlowValue, setCurrentFlowValue] = useState(50);
+  const [currentHeartRate, setCurrentHeartRate] = useState(75);
+  const [timelineData, setTimelineData] = useState<Array<{ timestamp: string; flowValue: number; heartRateValue: number }>>([]);
 
   const addAction = (type: string, description: string) => {
     const newAction = {
@@ -221,6 +611,228 @@ const DataAnalysis = () => {
       timestamp: new Date(),
     };
     setActions(prev => [newAction, ...prev].slice(0, 5));
+  };
+
+  // Function to update the timeline data
+  const updateTimelineData = (day: string) => {
+    if (!day || rawFlowData.length === 0 || rawHeartRateData.length === 0) {
+      console.error("Cannot update timeline data - missing required data:", {
+        day,
+        rawFlowDataLength: rawFlowData.length,
+        rawHeartRateDataLength: rawHeartRateData.length
+      });
+      return;
+    }
+    
+    // console.log("Updating timeline data for day:", day);
+    // console.log("Raw flow data count:", rawFlowData.length);
+    // console.log("Raw heart rate data count:", rawHeartRateData.length);
+    
+    setIsTimelineLoading(true);
+    
+    // Short timeout to show loading state
+    setTimeout(() => {
+      try {
+        // Create the time points based on the selected day and interval
+        const minutesInterval = 5;
+        
+        const selectedDate = new Date(day);
+        console.log("Selected date for timeline:", selectedDate);
+        
+        // Set to beginning of day
+        const dayStart = new Date(selectedDate);
+        dayStart.setHours(0, 0, 0, 0);
+        
+        // Set to end of day
+        const dayEnd = new Date(selectedDate);
+        dayEnd.setHours(23, 59, 59, 999);
+        
+        // Filter data for selected day
+        const dayFlowData = rawFlowData.filter(point => {
+          const pointDate = new Date(point.timestamp);
+          return pointDate.toDateString() === selectedDate.toDateString();
+        });
+        
+        const dayHeartData = rawHeartRateData.filter(point => {
+          const pointDate = new Date(point.timestamp);
+          return pointDate.toDateString() === selectedDate.toDateString();
+        });
+        
+        // console.log("Day flow data count:", dayFlowData.length);
+        // console.log("Day heart rate data count:", dayHeartData.length);
+        
+        // Check if we have enough data points
+        const hasEnoughData = dayFlowData.length >= 3 && dayHeartData.length >= 3;
+        
+        // If no data, try to generate some test data points
+        if (!hasEnoughData) {
+          console.log("Not enough data found for timeline, generating fallback data");
+          const fallbackData = generateFallbackTimelineData(selectedDate);
+          console.log("Generated fallback data points:", fallbackData.length);
+          setTimelineData(fallbackData);
+          setIsTimelineLoading(false);
+          return;
+        }
+
+        // Create timeline points at regular intervals
+        const timePoints: Array<{ timestamp: string; flowValue: number; heartRateValue: number }> = [];
+        
+        // For 5-minute intervals, use a larger time window for data aggregation
+        // to smooth out the data but maintain precision
+        const timeWindowMultiplier = 1.5;
+        
+        // Generate points exactly on 5-minute boundaries for grid display
+        for (
+          let currentTime = new Date(dayStart); 
+          currentTime <= dayEnd;
+          currentTime.setMinutes(currentTime.getMinutes() + minutesInterval)
+        ) {
+          // Ensure time is set exactly on 5-minute boundaries
+          const minutes = currentTime.getMinutes();
+          const roundedMinutes = Math.floor(minutes / 5) * 5;
+          currentTime.setMinutes(roundedMinutes, 0, 0);
+          
+          // Find data points close to this interval
+          const timeWindow = minutesInterval * 60 * 1000 * timeWindowMultiplier; // Convert to milliseconds with multiplier
+          const currentTimeMs = currentTime.getTime();
+          
+          // Use real data
+          // Find flow data within this time window
+          const relevantFlowData = dayFlowData.filter(point => {
+            const pointTime = new Date(point.timestamp).getTime();
+            return Math.abs(pointTime - currentTimeMs) <= timeWindow / 2;
+          });
+          
+          // Find heart rate data within this time window
+          const relevantHeartData = dayHeartData.filter(point => {
+            const pointTime = new Date(point.timestamp).getTime();
+            return Math.abs(pointTime - currentTimeMs) <= timeWindow / 2;
+          });
+          
+          // Calculate average values
+          const avgFlow = relevantFlowData.length > 0
+            ? relevantFlowData.reduce((sum, point) => sum + point.value, 0) / relevantFlowData.length
+            : 50; // Default value
+            
+          const avgHeart = relevantHeartData.length > 0
+            ? relevantHeartData.reduce((sum, point) => sum + point.value, 0) / relevantHeartData.length
+            : 75; // Default value
+          
+          timePoints.push({
+            timestamp: currentTime.toISOString(),
+            flowValue: avgFlow,
+            heartRateValue: avgHeart
+          });
+        }
+        
+        console.log("Generated timeline points:", timePoints.length);
+        setTimelineData(timePoints);
+      } catch (error) {
+        console.error("Error generating timeline data:", error);
+        // Generate fallback data in case of error
+        const fallbackData = generateFallbackTimelineData(new Date(day));
+        setTimelineData(fallbackData);
+      } finally {
+        setIsTimelineLoading(false);
+      }
+    }, 300);
+  };
+  
+  // Generate fallback timeline data if real data is insufficient
+  const generateFallbackTimelineData = (date: Date) => {
+    const timePoints: Array<{ timestamp: string; flowValue: number; heartRateValue: number }> = [];
+    
+    // Set to beginning of day
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    
+    // Set to end of day
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+    
+    // Generate more focused data for typical activity hours
+    // We'll generate data for the entire 24-hour period, but with more realistic patterns
+    // based on typical human activity cycles
+    
+    // Generate data points for each hour and 5-minute interval
+    for (let hour = 0; hour < 24; hour++) {
+      for (let minute = 0; minute < 60; minute += 5) {
+        const currentTime = new Date(date);
+        currentTime.setHours(hour, minute, 0, 0);
+        
+        // Generate different patterns based on time of day
+        let sampleFlow = 50;
+        let activityMultiplier = 1.0;
+        
+        // Late night / early morning (0-6): Low activity
+        if (hour >= 0 && hour < 6) {
+          activityMultiplier = 0.5;
+          sampleFlow = 20 + (Math.random() * 15);
+        }
+        // Morning ramp-up (6-9): Gradually increasing
+        else if (hour >= 6 && hour < 9) {
+          activityMultiplier = 0.7 + ((hour - 6) / 3) * 0.3;
+          sampleFlow = 30 + ((hour - 6) / 3) * 30 + (Math.random() * 20);
+        }
+        // Morning work period (9-12): High activity
+        else if (hour >= 9 && hour < 12) {
+          activityMultiplier = 1.0;
+          sampleFlow = 60 + ((hour - 9) / 3) * 20 + (Math.random() * 15);
+        }
+        // Lunch dip (12-14): Decreased activity
+        else if (hour >= 12 && hour < 14) {
+          activityMultiplier = 0.8;
+          sampleFlow = 50 + (Math.random() * 20);
+        }
+        // Afternoon work period (14-17): High activity
+        else if (hour >= 14 && hour < 17) {
+          activityMultiplier = 1.0;
+          sampleFlow = 70 + ((17 - hour) / 3) * 15 + (Math.random() * 15);
+        }
+        // Evening wind-down (17-21): Gradually decreasing
+        else if (hour >= 17 && hour < 21) {
+          activityMultiplier = 0.9 - ((hour - 17) / 4) * 0.3;
+          sampleFlow = 60 - ((hour - 17) / 4) * 30 + (Math.random() * 15);
+        }
+        // Night relaxation (21-24): Low activity
+        else {
+          activityMultiplier = 0.6;
+          sampleFlow = 30 + (Math.random() * 20);
+        }
+        
+        // Add some periodic variations based on 5-minute intervals
+        // This creates a wave pattern within each hour
+        const minuteFactor = (minute % 60) / 60;
+        const minuteVariation = Math.sin(minuteFactor * Math.PI * 2) * 8 * activityMultiplier;
+        sampleFlow += minuteVariation;
+        
+        // Heart rate follows flow but with some variation and is less volatile
+        let sampleHeartRate = 60 + (sampleFlow / 100) * 25 * activityMultiplier;
+        
+        // Add some periodic variations
+        const heartVariation = Math.cos(minuteFactor * Math.PI * 2) * 6 * activityMultiplier;
+        sampleHeartRate += heartVariation;
+        
+        // Add some randomness (less for heart rate as it's more stable)
+        sampleFlow += (Math.random() * 10 - 5) * activityMultiplier;
+        sampleHeartRate += (Math.random() * 6 - 3) * activityMultiplier;
+        
+        // Add a sample data point - only if it would be visible
+        // (no need to generate data for times when user is likely asleep/inactive)
+        const isActiveTime = hour >= 7 && hour <= 22; // 7 AM to 10 PM
+        const shouldAddDataPoint = isActiveTime || Math.random() < 0.2; // 20% chance to add point in inactive hours
+        
+        if (shouldAddDataPoint) {
+          timePoints.push({
+            timestamp: currentTime.toISOString(),
+            flowValue: Math.round(Math.min(Math.max(sampleFlow, 0), 100)),
+            heartRateValue: Math.round(Math.min(Math.max(sampleHeartRate, 50), 100))
+          });
+        }
+      }
+    }
+    
+    return timePoints;
   };
 
   const handleDatasetChange = (value: Dataset) => {
@@ -236,9 +848,42 @@ const DataAnalysis = () => {
     }, 1500);
   };
 
+  const handleDaySelect = (day: string) => {
+    // console.log("Day selected:", day);
+    setSelectedDay(day);
+    
+    // Reset the timeline loading state and data
+    setIsTimelineLoading(true);
+    
+    // Allow UI to update before processing data
+    setTimeout(() => {
+      if (day && rawFlowData && rawHeartRateData) {
+        // console.log("Processing data for selected day:", day);
+        
+        // Generate insights using data from state (including indicators)
+        const insights = analyzeDailyData(
+          rawFlowData, 
+          rawHeartRateData, 
+          rawFrustratedData, // Pass indicator data from state
+          rawExcitedData,    // Pass indicator data from state
+          rawCalmData,       // Pass indicator data from state
+          day 
+        ); 
+        setDailyInsights(insights); 
+        
+        // Generate timeline data 
+        updateTimelineData(day); 
+      } else { 
+        console.warn("Cannot process data for day:", day, "- missing required raw flow/heart rate data"); 
+        setIsTimelineLoading(false);
+      }
+    }, 0);
+  };
+
   useEffect(() => {
-    const fetchFlowData = async () => {
+    const fetchData = async () => {
       setIsLoading(true);
+      setIsTimelineLoading(true);
       try {
         const response = await fetch(`http://localhost:3000/api/getFlowIntensityData`, {
           method: 'POST',
@@ -250,21 +895,45 @@ const DataAnalysis = () => {
           }),
         });
 
-        if (!response.ok) throw new Error('Failed to fetch flow data');
+        if (!response.ok) throw new Error('Failed to fetch data');
         
         const records: FlowRecord[] = await response.json();
         
-        // Process both flow and heart rate data
+        // Always process both flow and heart rate data
         const processedFlowData = processFlowData(records, 'flow');
         const processedHeartRateData = processFlowData(records, 'heart');
+        const rawFlowDataPoints = processRawData(records, 'flow');
+        const rawHeartRateDataPoints = processRawData(records, 'heart');
+        // Process optional indicator data
+        const rawFrustratedPoints = processIndicatorData(records, 'frustrated');
+        const rawExcitedPoints = processIndicatorData(records, 'excited');
+        const rawCalmPoints = processIndicatorData(records, 'calm');
         
         setFlowData(processedFlowData);
         setHeartRateData(processedHeartRateData);
-        
-        if (selectedDataset === 'flowIntensity') {
-          setFlowData(processedFlowData);
-        } else if (selectedDataset === 'heartRate') {
-          setHeartRateData(processedHeartRateData);
+        setRawFlowData(rawFlowDataPoints);
+        setRawHeartRateData(rawHeartRateDataPoints);
+        setRawFrustratedData(rawFrustratedPoints);
+        setRawExcitedData(rawExcitedPoints);
+        setRawCalmData(rawCalmPoints);
+
+        // After setting the raw data, call updateTimelineData directly to ensure state is updated
+        if (selectedDay) {
+          // console.log("Initializing data for selected day:", selectedDay);
+          
+          // Trigger daily insights calculation, passing the newly processed raw data
+          const insights = analyzeDailyData(
+            rawFlowDataPoints, 
+            rawHeartRateDataPoints, 
+            rawFrustratedPoints, 
+            rawExcitedPoints, 
+            rawCalmPoints, 
+            selectedDay
+          ); 
+          setDailyInsights(insights); 
+          
+          // Generate timeline data 
+          updateTimelineData(selectedDay); 
         }
         
       } catch (error) {
@@ -276,13 +945,13 @@ const DataAnalysis = () => {
         });
       } finally {
         setIsLoading(false);
+        // Timeline loading will be set to false inside updateTimelineData function
       }
     };
 
-    if (selectedDataset === 'flowIntensity' || selectedDataset === 'heartRate') {
-      fetchFlowData();
-    }
-  }, [selectedDataset]);
+    // Always fetch data when component mounts or when dataset changes
+    fetchData();
+  }, [selectedDataset, selectedDay]); // Keep selectedDay as a dependency
 
   const runSimilarityAnalysis = () => {
     if (flowData.length < 2 || heartRateData.length < 2) {
@@ -312,9 +981,131 @@ const DataAnalysis = () => {
     }, 1000);
   };
 
-  const chartData = (selectedDataset === 'flowIntensity' || selectedDataset === 'heartRate') && flowData.length > 0
-    ? flowData
-    : SAMPLE_DATA[selectedDataset].data;
+  const getDailyData = (day: string, dataType: 'flow' | 'heart') => {
+    const rawData = dataType === 'flow' ? rawFlowData : rawHeartRateData;
+    const dailyData = rawData.filter(point => {
+      const pointDate = new Date(point.timestamp);
+      const selectedDate = new Date(day);
+      return pointDate.toDateString() === selectedDate.toDateString();
+    });
+    return processIntervalData(dailyData);
+  };
+
+  const calculateDataRange = (data: IntervalData[], dataType: 'flow' | 'heart' = 'heart') => {
+    const validValues = data
+      .map(d => d.average)
+      .filter(v => v > 0);
+    
+    if (validValues.length === 0) {
+      return { min: 0, max: dataType === 'flow' ? 150 : 100 };
+    }
+
+    const min = Math.min(...validValues);
+    const max = Math.max(...validValues);
+    
+    // Add more padding to the range (15% on each side)
+    const padding = (max - min) * 0.15;
+    return {
+      min: Math.max(0, Math.floor(min - padding)),
+      max: dataType === 'flow' 
+        ? Math.ceil(max + padding * 3) // Add 200% more padding for flow intensity
+        : Math.min(100, Math.ceil(max + padding * 2.5)) // Keep heart rate capped at 100
+    };
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  const chartData = (() => {
+    if (selectedDataset === 'flowAndHeart' && flowData.length > 0 && heartRateData.length > 0) {
+      return flowData.map((flow, index) => ({
+        timestamp: flow.timestamp,
+        flowValue: flow.value,
+        heartValue: heartRateData[index]?.value || 0
+      }));
+    }
+    if ((selectedDataset === 'flowIntensity' || selectedDataset === 'heartRate') && flowData.length > 0) {
+      return flowData;
+    }
+    return SAMPLE_DATA[selectedDataset].data;
+  })();
+
+  const availableDays = chartData.map(point => point.timestamp);
+
+  // Mock real-time data update function
+  const updateRealTimeData = useCallback(() => {
+    // Get newest flow value based on the most recent data point
+    if (rawFlowData.length > 0) {
+      const latestTimestamp = new Date(Math.max(...rawFlowData.map(d => new Date(d.timestamp).getTime())));
+      const latestFlowData = rawFlowData.filter(d => 
+        new Date(d.timestamp).getTime() === latestTimestamp.getTime()
+      );
+      
+      if (latestFlowData.length > 0) {
+        setCurrentFlowValue(latestFlowData[0].value);
+      }
+      
+      const latestHeartData = rawHeartRateData.filter(d => 
+        new Date(d.timestamp).getTime() === latestTimestamp.getTime()
+      );
+      
+      if (latestHeartData.length > 0) {
+        setCurrentHeartRate(latestHeartData[0].value);
+      }
+    }
+  }, [rawFlowData, rawHeartRateData]);
+  
+  // Update real-time values whenever new data is loaded
+  useEffect(() => {
+    updateRealTimeData();
+  }, [rawFlowData, rawHeartRateData, updateRealTimeData]);
+  
+  // Ensure timeline data is loaded whenever raw data changes
+  useEffect(() => {
+    if (selectedDay && rawFlowData.length > 0 && rawHeartRateData.length > 0 && timelineData.length === 0) {
+      // console.log("Initial timeline data load triggered");
+      updateTimelineData(selectedDay);
+    }
+  }, [rawFlowData, rawHeartRateData, selectedDay, timelineData.length]);
+
+  // --- Merge Calm/Frustrated Interval Data --- 
+  const indicatorChartData = useMemo(() => {
+    if (!dailyInsights?.calmIntervals || !dailyInsights?.frustratedIntervals || !dailyInsights?.excitedIntervals) {
+      return [];
+    }
+
+    const combined: { [timestamp: string]: { calmValue?: number; frustratedValue?: number; excitedValue?: number } } = {};
+
+    dailyInsights.calmIntervals.forEach(interval => {
+      if (!combined[interval.timestamp]) combined[interval.timestamp] = {};
+      combined[interval.timestamp].calmValue = interval.average;
+    });
+
+    dailyInsights.frustratedIntervals.forEach(interval => {
+      if (!combined[interval.timestamp]) combined[interval.timestamp] = {};
+      combined[interval.timestamp].frustratedValue = interval.average;
+    });
+
+    dailyInsights.excitedIntervals.forEach(interval => {
+      if (!combined[interval.timestamp]) combined[interval.timestamp] = {};
+      combined[interval.timestamp].excitedValue = interval.average;
+    });
+
+    return Object.entries(combined)
+      .map(([timestamp, values]) => ({
+        timestamp,
+        calmValue: (values.calmValue ?? 0),
+        frustratedValue: (values.frustratedValue ?? 0),
+        excitedValue: (values.excitedValue ?? 0),
+      }))
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [dailyInsights]);
 
   return (
     <div className="flex min-h-screen w-full">
@@ -324,49 +1115,342 @@ const DataAnalysis = () => {
         <div className="flex h-screen flex-col p-6">
           <div className="mb-4">
             <h1 className="text-2xl font-bold">Data Analysis</h1>
-            <p className="text-muted-foreground">Analyze brain activity patterns</p>
+            <p className="text-muted-foreground">Analyze daily activity patterns</p>
           </div>
 
           <ScrollArea className="flex-1 rounded-lg border border-sidebar-border bg-background/50 p-4">
             <div className="space-y-6">
-              <Select
-                value={selectedDataset}
-                onValueChange={(value: Dataset) => handleDatasetChange(value)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select dataset to analyze" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="flowIntensity">Flow Intensity</SelectItem>
-                  <SelectItem value="heartRate">Heart Rate</SelectItem>
-                  <SelectItem value="productivity">Productivity Patterns</SelectItem>
-                  <SelectItem value="stress">Stress Patterns</SelectItem>
-                  <SelectItem value="learning">Learning Capacity</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <Select
+                    value={selectedDataset}
+                    onValueChange={(value: Dataset) => handleDatasetChange(value)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select dataset to analyze" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="flowAndHeart">Flow & Heart Rate</SelectItem>
+                      <SelectItem value="flowIntensity">Flow Intensity</SelectItem>
+                      <SelectItem value="heartRate">Heart Rate</SelectItem>
+                      <SelectItem value="productivity">Productivity Patterns</SelectItem>
+                      <SelectItem value="stress">Stress Patterns</SelectItem>
+                      <SelectItem value="learning">Learning Capacity</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="timestamp" />
-                    <YAxis domain={[0, 100]} />
-                    <Tooltip />
-                    <Line 
-                      type="monotone" 
-                      dataKey="value" 
-                      stroke={getLineColor(selectedDataset)}
-                      strokeWidth={2}
-                      dot={{ fill: getLineColor(selectedDataset) }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-                {isLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-background/50">
-                    <div className="animate-spin h-6 w-6 border-2 border-accent border-t-transparent rounded-full" />
-                  </div>
-                )}
+                <ToggleGroup
+                  type="single"
+                  value={viewMode}
+                  onValueChange={(value: 'weekly' | 'daily') => value && setViewMode(value)}
+                  className="justify-end"
+                >
+                  <ToggleGroupItem value="weekly" aria-label="Weekly View">
+                    Weekly
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="daily" aria-label="Daily View">
+                    Daily
+                  </ToggleGroupItem>
+                </ToggleGroup>
               </div>
+
+              {viewMode === 'weekly' ? (
+                <div className="h-[300px] w-full">
+                  <h3 className="text-lg font-medium mb-2">Weekly Overview</h3>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="timestamp" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip 
+                        formatter={(value, name, props) => {
+                          const formattedValue = typeof value === 'number' ? value.toFixed(0) : value;
+                          if (props.dataKey === 'flowValue') return [formattedValue, 'Flow Intensity'];
+                          if (props.dataKey === 'heartValue') return [formattedValue, 'Heart Rate'];
+                          // Fallback for other datasets
+                          return [formattedValue, 'Value']; 
+                        }}
+                        contentStyle={{ color: 'black' }}
+                      />
+                      {selectedDataset === 'flowAndHeart' ? (
+                        <>
+                          <Line 
+                            type="monotone" 
+                            dataKey="flowValue" 
+                            name="Flow Intensity"
+                            stroke={getLineColor('flowIntensity')}
+                            strokeWidth={2}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="heartValue" 
+                            name="Heart Rate"
+                            stroke={getLineColor('heartRate')}
+                            strokeWidth={2}
+                          />
+                        </>
+                      ) : (
+                        <Line 
+                          type="monotone" 
+                          dataKey="value" 
+                          stroke={getLineColor(selectedDataset)}
+                          strokeWidth={2}
+                        />
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                  {isLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+                      <div className="animate-spin h-6 w-6 border-2 border-accent border-t-transparent rounded-full" />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-medium">Daily Breakdown</h3>
+                    <Select
+                      value={selectedDay}
+                      onValueChange={handleDaySelect}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a day to view detailed data" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDays.map((day) => (
+                          <SelectItem key={day} value={day}>
+                            {formatDate(day)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  {selectedDay && dailyInsights && (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="h-[200px] w-full">
+                          <h4 className="text-sm font-medium mb-2">Flow Intensity</h4>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={getDailyData(selectedDay, 'flow')}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis 
+                                dataKey="timestamp" 
+                                tickFormatter={formatTime}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis 
+                                domain={[
+                                  (dataMin) => calculateDataRange(getDailyData(selectedDay, 'flow'), 'flow').min,
+                                  (dataMax) => calculateDataRange(getDailyData(selectedDay, 'flow'), 'flow').max
+                                ]}
+                              />
+                              <Tooltip 
+                                labelFormatter={(label) => formatTime(label)}
+                                formatter={(value) => [
+                                  typeof value === 'number' ? value.toFixed(0) + '%' : value,
+                                  'Flow Intensity'
+                                ]}
+                                contentStyle={{ color: 'black' }}
+                              />
+                              <Line 
+                                type="monotone" 
+                                dataKey="average" 
+                                stroke={getLineColor('flowIntensity')}
+                                strokeWidth={2}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+
+                        <div className="h-[200px] w-full">
+                          <h4 className="text-sm font-medium mb-2">Heart Rate</h4>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={getDailyData(selectedDay, 'heart')}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis 
+                                dataKey="timestamp" 
+                                tickFormatter={formatTime}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis 
+                                domain={[
+                                  (dataMin) => calculateDataRange(getDailyData(selectedDay, 'heart'), 'heart').min,
+                                  (dataMax) => calculateDataRange(getDailyData(selectedDay, 'heart'), 'heart').max
+                                ]}
+                              />
+                              <Tooltip 
+                                labelFormatter={(label) => formatTime(label)}
+                                formatter={(value) => [
+                                  typeof value === 'number' ? value.toFixed(0) + ' bpm' : value,
+                                  'Heart Rate'
+                                ]}
+                                contentStyle={{ color: 'black' }}
+                              />
+                              <Line 
+                                type="monotone" 
+                                dataKey="average" 
+                                stroke={getLineColor('heartRate')}
+                                strokeWidth={2}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                      <br></br>
+                      {/* New Calm vs Frustrated Chart */}
+                      <div className="h-[200px] w-full mt-4">
+                        <h4 className="text-sm font-medium mb-2">Calm vs. Frustration vs. Excitement Indicators (5min Avg)</h4>
+                        {indicatorChartData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={indicatorChartData}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis
+                                dataKey="timestamp"
+                                tickFormatter={formatTime}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis domain={[0, 100]} />
+                              <Tooltip
+                                labelFormatter={(label) => formatTime(label)}
+                                formatter={(value, name) => [
+                                  typeof value === 'number' ? value.toFixed(0) : value,
+                                  name
+                                ]}
+                                contentStyle={{ color: 'black' }}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="calmValue"
+                                name="Calm"
+                                stroke="#81D4FA" // Light blue for Calm
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="frustratedValue"
+                                name="Frustration"
+                                stroke="#FFA000" // Orange for Frustration
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="excitedValue"
+                                name="Excitement"
+                                stroke="#FFDA63" // Yellow for Excitement
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center border rounded-md bg-accent/5">
+                            <p className="text-center text-sm text-muted-foreground">
+                              Indicator data not available for this day.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <br></br>
+                      <div className="bg-accent/10 rounded-lg p-4 space-y-4">
+                        <div className="text-sm space-y-1">
+                          <h4 className="font-medium text-lg">Daily Insights</h4>
+                        </div>
+                        
+                        {dailyInsights && (
+                          <div className="grid grid-cols-3 gap-4">
+                            {/* Column 1: Emotion Visualization */}
+                            <div className="flex flex-col items-center justify-center space-y-4">
+                              <EmotionAvatar 
+                                flowStats={dailyInsights.flowIntensity}
+                                heartRateStats={dailyInsights.heartRate}
+                                correlation={dailyInsights.correlation}
+                                frustratedIndicatorValue={dailyInsights.frustratedIndicatorValue}
+                                excitedIndicatorValue={dailyInsights.excitedIndicatorValue}
+                                calmIndicatorValue={dailyInsights.calmIndicatorValue}
+                                width={150}
+                                height={150}
+                              />
+                            </div>
+                            
+                            {/* Column 2: Flow Intensity */}
+                            <div className="space-y-2">
+                              <h5 className="font-medium text-sm text-muted-foreground">Flow Intensity</h5>
+                              <div className="text-sm space-y-1">
+                                <p>Average: {Math.round(dailyInsights.flowIntensity.average)}%</p>
+                                <p>Peak: {Math.round(dailyInsights.flowIntensity.peak)}%</p>
+                                <p>Stability: {Math.round(dailyInsights.flowIntensity.stability)}%</p>
+                                <p>Peak Time: {formatTime(dailyInsights.flowIntensity.peakTime)}</p>
+                                <p>Deviation: {Math.round(dailyInsights.flowIntensity.deviation)}%</p>
+                              </div>
+                            </div>
+                            
+                            {/* Column 3: Heart Rate */}
+                            <div className="space-y-2">
+                              <h5 className="font-medium text-sm text-muted-foreground">Heart Rate</h5>
+                              <div className="text-sm space-y-1">
+                                <p>Average: {Math.round(dailyInsights.heartRate.average)} bpm</p>
+                                <p>Peak: {Math.round(dailyInsights.heartRate.peak)} bpm</p>
+                                <p>Stability: {Math.round(dailyInsights.heartRate.stability)}%</p>
+                                <p>Peak Time: {formatTime(dailyInsights.heartRate.peakTime)}</p>
+                                <p>Deviation: {Math.round(dailyInsights.heartRate.deviation)} bpm</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {dailyInsights && (
+                          <div className="space-y-2 mt-4">
+                            {/* Emotion Timeline - Full width */}
+                            <div className="w-full">
+                              <div className="flex justify-between items-center mb-2">
+                                <h6 className="text-sm font-medium">Emotion Timeline</h6>
+                              </div>
+                              {isTimelineLoading ? (
+                                <div className="w-full h-[200px] flex items-center justify-center">
+                                  <div className="animate-spin h-5 w-5 border-2 border-accent border-t-transparent rounded-full" />
+                                </div>
+                              ) : timelineData.length === 0 ? (
+                                <div className="w-full h-[150px] flex items-center justify-center border rounded-md bg-accent/5">
+                                  <div className="text-center text-sm text-muted-foreground">
+                                    <p>No timeline data available for this day</p>
+                                    <button 
+                                      className="text-xs text-accent underline mt-2"
+                                      onClick={() => {
+                                        console.log("Manually generating fallback timeline data");
+                                        const fallbackData = generateFallbackTimelineData(new Date(selectedDay));
+                                        setTimelineData(fallbackData);
+                                      }}
+                                    >
+                                      Generate sample timeline
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <EmotionTimeline 
+                                  timePoints={timelineData}
+                                  width={800}
+                                />
+                              )}
+                            </div>
+                            
+                            <h5 className="font-medium text-sm text-muted-foreground mt-4">Key Insights</h5>
+                            <ul className="list-disc list-inside text-sm space-y-1">
+                              {dailyInsights.keyInsights.map((insight, index) => (
+                                <li key={index}>{insight}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-col items-center space-y-2 border-t border-b py-4 border-sidebar-border">
                 <h3 className="text-lg font-medium">Data Similarity Analysis</h3>
@@ -511,6 +1595,7 @@ const DataAnalysis = () => {
 
       <div className="w-80 border-l border-sidebar-border bg-sidebar-background p-4 neural-bg">
         <h2 className="mb-4 text-lg font-semibold">Analysis Progress</h2>
+        
         <AnimatePresence>
           {actions.map((action) => (
             <motion.div
