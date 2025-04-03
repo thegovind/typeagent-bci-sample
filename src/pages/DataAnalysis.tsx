@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import DynamicSidebar from "@/components/DynamicSidebar";
 import { motion, AnimatePresence } from "framer-motion";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -23,8 +23,12 @@ interface FlowRecord {
   _ts: number;  // epoch timestamp in seconds
   flowActivityValues: number[];
   heartRateValues: number[];  // Add heart rate values
+  frustratedIndicatorValue?: number[];
+  excitedIndicatorValue?: number[];
+  calmIndicatorValue?: number[];
 }
 
+// Corrected type: Only timestamp and average value for weekly chart
 interface ProcessedFlowData {
   timestamp: string;
   value: number;
@@ -65,7 +69,16 @@ interface DailyInsights {
   };
   correlation: number; // -1 to 1, correlation between flow and heart rate
   keyInsights: string[];
+  frustratedIndicatorValue?: number; 
+  excitedIndicatorValue?: number; 
+  calmIndicatorValue?: number; 
+  calmIntervals: IntervalData[];
+  frustratedIntervals: IntervalData[];
+  excitedIntervals: IntervalData[];
 }
+
+// Add type for raw indicator data points (same structure as RawDataPoint)
+type RawIndicatorPoint = RawDataPoint;
 
 const SAMPLE_DATA: Record<Dataset, { data: DataPoint[], description: Record<ReadingLevel, string> }> = {
   productivity: {
@@ -180,7 +193,23 @@ const processRawData = (records: FlowRecord[], dataType: 'flow' | 'heart'): RawD
   });
 };
 
-const processIntervalData = (data: RawDataPoint[], intervalMinutes: number = 5): IntervalData[] => {
+const processIndicatorData = (records: FlowRecord[], indicatorType: 'frustrated' | 'excited' | 'calm'): RawIndicatorPoint[] => {
+  return records.flatMap(record => {
+    let values: number[] | undefined;
+    switch (indicatorType) {
+      case 'frustrated': values = record.frustratedIndicatorValue; break;
+      case 'excited': values = record.excitedIndicatorValue; break;
+      case 'calm': values = record.calmIndicatorValue; break;
+    }
+    // Only map if values exist and are not empty
+    return values && values.length > 0 ? values.map((value, index) => ({
+      timestamp: new Date(record._ts * 1000).toISOString(), // Associate with the main timestamp
+      value: value*100
+    })) : [];
+  });
+};
+
+const processIntervalData = (data: RawDataPoint[] | RawIndicatorPoint[], intervalMinutes: number = 5): IntervalData[] => {
   const intervals: { [key: string]: number[] } = {};
   
   data.forEach(point => {
@@ -324,20 +353,35 @@ const formatTime = (dateString: string) => {
 };
 
 const analyzeDailyData = (
-  flowData: RawDataPoint[],
-  heartRateData: RawDataPoint[],
+  rawFlowData: RawDataPoint[],
+  rawHeartRateData: RawDataPoint[],
+  rawFrustratedData: RawIndicatorPoint[],
+  rawExcitedData: RawIndicatorPoint[],
+  rawCalmData: RawIndicatorPoint[],
   day: string
 ): DailyInsights => {
-  const dailyFlow = flowData.filter(point => 
+  const dailyFlow = rawFlowData.filter(point => 
     new Date(point.timestamp).toDateString() === new Date(day).toDateString()
   );
-  const dailyHeartRate = heartRateData.filter(point => 
+  const dailyHeartRate = rawHeartRateData.filter(point => 
+    new Date(point.timestamp).toDateString() === new Date(day).toDateString()
+  );
+  const dailyFrustrated = rawFrustratedData.filter(point => 
+    new Date(point.timestamp).toDateString() === new Date(day).toDateString()
+  );
+  const dailyExcited = rawExcitedData.filter(point => 
+    new Date(point.timestamp).toDateString() === new Date(day).toDateString()
+  );
+  const dailyCalm = rawCalmData.filter(point => 
     new Date(point.timestamp).toDateString() === new Date(day).toDateString()
   );
 
   // Process data in 5-minute intervals
   const flowIntervals = processIntervalData(dailyFlow, 5);
   const heartRateIntervals = processIntervalData(dailyHeartRate, 5);
+  const calmIntervals = processIntervalData(dailyCalm, 5);
+  const frustratedIntervals = processIntervalData(dailyFrustrated, 5);
+  const excitedIntervals = processIntervalData(dailyExcited, 5);
 
   const calculateStats = (intervals: IntervalData[]) => {
     const validValues = intervals.map(d => d.average).filter(v => v > 0);
@@ -473,11 +517,66 @@ const analyzeDailyData = (
   
   keyInsights.push(`Recommended water intake: ${baseIntake.toFixed(1)}L based on your activity levels`);
 
+  // --- Calculate final indicators: Use raw data if available, else use heuristics ---
+  
+  // Function to calculate average from raw daily indicator points
+  const getAverageIndicator = (dailyIndicatorData: RawIndicatorPoint[]): number | null => {
+    const validValues = dailyIndicatorData.map(p => p.value).filter(v => typeof v === 'number');
+    if (validValues.length === 0) return null;
+    return validValues.reduce((a, b) => a + b, 0) / validValues.length;
+  };
+
+  const avgFrustratedRaw = getAverageIndicator(dailyFrustrated);
+  const avgExcitedRaw = getAverageIndicator(dailyExcited);
+  const avgCalmRaw = getAverageIndicator(dailyCalm);
+
+  let finalFrustratedIndicator: number;
+  let finalExcitedIndicator: number;
+  let finalCalmIndicator: number;
+
+  // Use raw average if available, otherwise calculate heuristic
+  if (avgFrustratedRaw !== null) {
+    finalFrustratedIndicator = avgFrustratedRaw;
+  } else {
+    let frustratedHeuristic = 0;
+    if (flowStats.stability < 40 && heartRateStats.stability > 60) frustratedHeuristic += 30;
+    if (flowStats.average < 40 && heartRateStats.average > 85) frustratedHeuristic += 30;
+    if (correlation < -0.5) frustratedHeuristic += 40;
+    finalFrustratedIndicator = Math.min(100, frustratedHeuristic * 1.5); 
+  }
+
+  if (avgExcitedRaw !== null) {
+    finalExcitedIndicator = avgExcitedRaw;
+  } else {
+    let excitedHeuristic = 0;
+    if (flowStats.average > 75) excitedHeuristic += 40;
+    if (flowStats.peak > 85) excitedHeuristic += 20;
+    if (heartRateStats.average > 80) excitedHeuristic += 20;
+    if (heartRateStats.peak > 95) excitedHeuristic += 20;
+    finalExcitedIndicator = Math.min(100, excitedHeuristic); 
+  }
+
+  if (avgCalmRaw !== null) {
+    finalCalmIndicator = avgCalmRaw;
+  } else {
+    let calmHeuristic = 0;
+    if (flowStats.average < 50 && heartRateStats.average < 70) calmHeuristic += 40;
+    if (flowStats.stability > 70) calmHeuristic += 30;
+    if (heartRateStats.stability > 70) calmHeuristic += 30;
+    finalCalmIndicator = Math.min(100, calmHeuristic);
+  }
+  
   return {
     flowIntensity: flowStats,
     heartRate: heartRateStats,
     correlation,
-    keyInsights
+    keyInsights,
+    frustratedIndicatorValue: Math.round(finalFrustratedIndicator),
+    excitedIndicatorValue: Math.round(finalExcitedIndicator),
+    calmIndicatorValue: Math.round(finalCalmIndicator),
+    calmIntervals: calmIntervals,
+    frustratedIntervals: frustratedIntervals,
+    excitedIntervals: excitedIntervals,
   };
 };
 
@@ -492,6 +591,9 @@ const DataAnalysis = () => {
   const [heartRateData, setHeartRateData] = useState<ProcessedFlowData[]>([]);
   const [rawFlowData, setRawFlowData] = useState<RawDataPoint[]>([]);
   const [rawHeartRateData, setRawHeartRateData] = useState<RawDataPoint[]>([]);
+  const [rawFrustratedData, setRawFrustratedData] = useState<RawIndicatorPoint[]>([]);
+  const [rawExcitedData, setRawExcitedData] = useState<RawIndicatorPoint[]>([]);
+  const [rawCalmData, setRawCalmData] = useState<RawIndicatorPoint[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTimelineLoading, setIsTimelineLoading] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
@@ -522,9 +624,9 @@ const DataAnalysis = () => {
       return;
     }
     
-    console.log("Updating timeline data for day:", day);
-    console.log("Raw flow data count:", rawFlowData.length);
-    console.log("Raw heart rate data count:", rawHeartRateData.length);
+    // console.log("Updating timeline data for day:", day);
+    // console.log("Raw flow data count:", rawFlowData.length);
+    // console.log("Raw heart rate data count:", rawHeartRateData.length);
     
     setIsTimelineLoading(true);
     
@@ -556,8 +658,8 @@ const DataAnalysis = () => {
           return pointDate.toDateString() === selectedDate.toDateString();
         });
         
-        console.log("Day flow data count:", dayFlowData.length);
-        console.log("Day heart rate data count:", dayHeartData.length);
+        // console.log("Day flow data count:", dayFlowData.length);
+        // console.log("Day heart rate data count:", dayHeartData.length);
         
         // Check if we have enough data points
         const hasEnoughData = dayFlowData.length >= 3 && dayHeartData.length >= 3;
@@ -747,7 +849,7 @@ const DataAnalysis = () => {
   };
 
   const handleDaySelect = (day: string) => {
-    console.log("Day selected:", day);
+    // console.log("Day selected:", day);
     setSelectedDay(day);
     
     // Reset the timeline loading state and data
@@ -756,16 +858,23 @@ const DataAnalysis = () => {
     // Allow UI to update before processing data
     setTimeout(() => {
       if (day && rawFlowData && rawHeartRateData) {
-        console.log("Processing data for selected day:", day);
+        // console.log("Processing data for selected day:", day);
         
-        // Generate insights
-        const insights = analyzeDailyData(rawFlowData, rawHeartRateData, day);
-        setDailyInsights(insights);
+        // Generate insights using data from state (including indicators)
+        const insights = analyzeDailyData(
+          rawFlowData, 
+          rawHeartRateData, 
+          rawFrustratedData, // Pass indicator data from state
+          rawExcitedData,    // Pass indicator data from state
+          rawCalmData,       // Pass indicator data from state
+          day 
+        ); 
+        setDailyInsights(insights); 
         
-        // Generate timeline data
-        updateTimelineData(day);
-      } else {
-        console.warn("Cannot process data for day:", day, "- missing required data");
+        // Generate timeline data 
+        updateTimelineData(day); 
+      } else { 
+        console.warn("Cannot process data for day:", day, "- missing required raw flow/heart rate data"); 
         setIsTimelineLoading(false);
       }
     }, 0);
@@ -795,49 +904,36 @@ const DataAnalysis = () => {
         const processedHeartRateData = processFlowData(records, 'heart');
         const rawFlowDataPoints = processRawData(records, 'flow');
         const rawHeartRateDataPoints = processRawData(records, 'heart');
+        // Process optional indicator data
+        const rawFrustratedPoints = processIndicatorData(records, 'frustrated');
+        const rawExcitedPoints = processIndicatorData(records, 'excited');
+        const rawCalmPoints = processIndicatorData(records, 'calm');
         
         setFlowData(processedFlowData);
         setHeartRateData(processedHeartRateData);
         setRawFlowData(rawFlowDataPoints);
         setRawHeartRateData(rawHeartRateDataPoints);
+        setRawFrustratedData(rawFrustratedPoints);
+        setRawExcitedData(rawExcitedPoints);
+        setRawCalmData(rawCalmPoints);
 
         // After setting the raw data, call updateTimelineData directly to ensure state is updated
         if (selectedDay) {
-          console.log("Initializing data for selected day:", selectedDay);
+          // console.log("Initializing data for selected day:", selectedDay);
           
-          // Trigger daily insights calculation
-          const insights = analyzeDailyData(rawFlowDataPoints, rawHeartRateDataPoints, selectedDay);
-          setDailyInsights(insights);
+          // Trigger daily insights calculation, passing the newly processed raw data
+          const insights = analyzeDailyData(
+            rawFlowDataPoints, 
+            rawHeartRateDataPoints, 
+            rawFrustratedPoints, 
+            rawExcitedPoints, 
+            rawCalmPoints, 
+            selectedDay
+          ); 
+          setDailyInsights(insights); 
           
-          // Generate timeline data immediately with the raw data we have, don't wait for state update
-          const dayFlowData = rawFlowDataPoints.filter(point => {
-            const pointDate = new Date(point.timestamp);
-            const selectedDate = new Date(selectedDay);
-            return pointDate.toDateString() === selectedDate.toDateString();
-          });
-          
-          const dayHeartData = rawHeartRateDataPoints.filter(point => {
-            const pointDate = new Date(point.timestamp);
-            const selectedDate = new Date(selectedDay);
-            return pointDate.toDateString() === selectedDate.toDateString();
-          });
-          
-          console.log("Found data for timeline -", {
-            dayFlowDataCount: dayFlowData.length,
-            dayHeartDataCount: dayHeartData.length
-          });
-          
-          // If we have data, generate a timeline immediately
-          if (dayFlowData.length >= 3 && dayHeartData.length >= 3) {
-            // Use direct data instead of waiting for state update
-            // This ensures we don't have race conditions between state updates
-            setTimeout(() => updateTimelineData(selectedDay), 100);
-          } else {
-            // Generate fallback data immediately
-            console.log("Generating fallback timeline data during initial load");
-            const fallbackData = generateFallbackTimelineData(new Date(selectedDay));
-            setTimelineData(fallbackData);
-          }
+          // Generate timeline data 
+          updateTimelineData(selectedDay); 
         }
         
       } catch (error) {
@@ -973,10 +1069,43 @@ const DataAnalysis = () => {
   // Ensure timeline data is loaded whenever raw data changes
   useEffect(() => {
     if (selectedDay && rawFlowData.length > 0 && rawHeartRateData.length > 0 && timelineData.length === 0) {
-      console.log("Initial timeline data load triggered");
+      // console.log("Initial timeline data load triggered");
       updateTimelineData(selectedDay);
     }
   }, [rawFlowData, rawHeartRateData, selectedDay, timelineData.length]);
+
+  // --- Merge Calm/Frustrated Interval Data --- 
+  const indicatorChartData = useMemo(() => {
+    if (!dailyInsights?.calmIntervals || !dailyInsights?.frustratedIntervals || !dailyInsights?.excitedIntervals) {
+      return [];
+    }
+
+    const combined: { [timestamp: string]: { calmValue?: number; frustratedValue?: number; excitedValue?: number } } = {};
+
+    dailyInsights.calmIntervals.forEach(interval => {
+      if (!combined[interval.timestamp]) combined[interval.timestamp] = {};
+      combined[interval.timestamp].calmValue = interval.average;
+    });
+
+    dailyInsights.frustratedIntervals.forEach(interval => {
+      if (!combined[interval.timestamp]) combined[interval.timestamp] = {};
+      combined[interval.timestamp].frustratedValue = interval.average;
+    });
+
+    dailyInsights.excitedIntervals.forEach(interval => {
+      if (!combined[interval.timestamp]) combined[interval.timestamp] = {};
+      combined[interval.timestamp].excitedValue = interval.average;
+    });
+
+    return Object.entries(combined)
+      .map(([timestamp, values]) => ({
+        timestamp,
+        calmValue: (values.calmValue ?? 0),
+        frustratedValue: (values.frustratedValue ?? 0),
+        excitedValue: (values.excitedValue ?? 0),
+      }))
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [dailyInsights]);
 
   return (
     <div className="flex min-h-screen w-full">
@@ -1034,7 +1163,16 @@ const DataAnalysis = () => {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="timestamp" />
                       <YAxis domain={[0, 100]} />
-                      <Tooltip />
+                      <Tooltip 
+                        formatter={(value, name, props) => {
+                          const formattedValue = typeof value === 'number' ? value.toFixed(0) : value;
+                          if (props.dataKey === 'flowValue') return [formattedValue, 'Flow Intensity'];
+                          if (props.dataKey === 'heartValue') return [formattedValue, 'Heart Rate'];
+                          // Fallback for other datasets
+                          return [formattedValue, 'Value']; 
+                        }}
+                        contentStyle={{ color: 'black' }}
+                      />
                       {selectedDataset === 'flowAndHeart' ? (
                         <>
                           <Line 
@@ -1110,9 +1248,9 @@ const DataAnalysis = () => {
                               />
                               <Tooltip 
                                 labelFormatter={(label) => formatTime(label)}
-                                formatter={(value, name) => [
-                                  typeof value === 'number' ? value.toFixed(1) : value, 
-                                  'Value'
+                                formatter={(value) => [
+                                  typeof value === 'number' ? value.toFixed(0) + '%' : value,
+                                  'Flow Intensity'
                                 ]}
                                 contentStyle={{ color: 'black' }}
                               />
@@ -1144,9 +1282,9 @@ const DataAnalysis = () => {
                               />
                               <Tooltip 
                                 labelFormatter={(label) => formatTime(label)}
-                                formatter={(value, name) => [
-                                  typeof value === 'number' ? value.toFixed(1) : value, 
-                                  'Value'
+                                formatter={(value) => [
+                                  typeof value === 'number' ? value.toFixed(0) + ' bpm' : value,
+                                  'Heart Rate'
                                 ]}
                                 contentStyle={{ color: 'black' }}
                               />
@@ -1159,6 +1297,62 @@ const DataAnalysis = () => {
                             </LineChart>
                           </ResponsiveContainer>
                         </div>
+                      </div>
+                      <br></br>
+                      {/* New Calm vs Frustrated Chart */}
+                      <div className="h-[200px] w-full mt-4">
+                        <h4 className="text-sm font-medium mb-2">Calm vs. Frustration vs. Excitement Indicators (5min Avg)</h4>
+                        {indicatorChartData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={indicatorChartData}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis
+                                dataKey="timestamp"
+                                tickFormatter={formatTime}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis domain={[0, 100]} />
+                              <Tooltip
+                                labelFormatter={(label) => formatTime(label)}
+                                formatter={(value, name) => [
+                                  typeof value === 'number' ? value.toFixed(0) : value,
+                                  name
+                                ]}
+                                contentStyle={{ color: 'black' }}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="calmValue"
+                                name="Calm"
+                                stroke="#81D4FA" // Light blue for Calm
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="frustratedValue"
+                                name="Frustration"
+                                stroke="#FFA000" // Orange for Frustration
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="excitedValue"
+                                name="Excitement"
+                                stroke="#FFDA63" // Yellow for Excitement
+                                strokeWidth={2}
+                                dot={false}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center border rounded-md bg-accent/5">
+                            <p className="text-center text-sm text-muted-foreground">
+                              Indicator data not available for this day.
+                            </p>
+                          </div>
+                        )}
                       </div>
 
                       <br></br>
@@ -1175,6 +1369,9 @@ const DataAnalysis = () => {
                                 flowStats={dailyInsights.flowIntensity}
                                 heartRateStats={dailyInsights.heartRate}
                                 correlation={dailyInsights.correlation}
+                                frustratedIndicatorValue={dailyInsights.frustratedIndicatorValue}
+                                excitedIndicatorValue={dailyInsights.excitedIndicatorValue}
+                                calmIndicatorValue={dailyInsights.calmIndicatorValue}
                                 width={150}
                                 height={150}
                               />
