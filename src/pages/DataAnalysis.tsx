@@ -8,10 +8,15 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area } from 'recharts';
 import EmotionAvatar, { EmotionState } from "@/components/ui/EmotionAvatar";
+import EmotionRange from "@/components/ui/EmotionRange";
 import EmotionTimeline from "@/components/ui/EmotionTimeline";
+import DayGradient from "@/components/ui/DayGradient";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 type ReadingLevel = "eli5" | "eli15" | "high-school" | "college" | "phd";
-type Dataset = "productivity" | "flowIntensity" | "heartRate" | "stress" | "learning" | "flowAndHeart";
+type Dataset = "productivity" | "flowIntensity" | "heartRate" | "stress" | "learning" | "flowAndHeart" | "dreamInsights";
 
 interface DataPoint {
   timestamp: string;
@@ -79,6 +84,30 @@ interface DailyInsights {
 
 // Add type for raw indicator data points (same structure as RawDataPoint)
 type RawIndicatorPoint = RawDataPoint;
+
+// Add dream data interface
+interface DreamPhase {
+  timestamp: string;
+  remIntensity: number;
+  deepSleepLevel: number;
+  deltaWaveActivity: number;
+  dreamRecalled: boolean;
+  emotionSignature?: string;
+}
+
+interface DreamInsight {
+  date: string;
+  totalSleepTime: number;
+  remPercentage: number;
+  deepSleepPercentage: number;
+  dreamPhases: DreamPhase[];
+  dominantEmotions: string[];
+  correlations: {
+    nextDayFlow: number;
+    nextDayHeartRate: number;
+    nextDayCreativity: number;
+  };
+}
 
 const SAMPLE_DATA: Record<Dataset, { data: DataPoint[], description: Record<ReadingLevel, string> }> = {
   productivity: {
@@ -157,6 +186,19 @@ const SAMPLE_DATA: Record<Dataset, { data: DataPoint[], description: Record<Read
       "high-school": "Analysis reveals synchronized patterns between cognitive flow and cardiovascular activity.",
       college: "Data indicates optimal coordination between mental engagement and physiological responses.",
       phd: "Quantitative assessment demonstrates strong neuro-cardiac coupling with optimal performance states.",
+    }
+  },
+  dreamInsights: {
+    data: Array.from({ length: 7 }, (_, i) => ({
+      timestamp: `Day ${i + 1}`,
+      value: Math.floor(Math.random() * 35) + 65,
+    })),
+    description: {
+      eli5: "Your brain was dreaming of colorful adventures while you slept! These dreams help your brain sort out all the things you learned during the day.",
+      eli15: "Your sleep data shows several REM cycles where your brain was actively dreaming, which helps with memory consolidation and emotional processing.",
+      "high-school": "Analysis of your sleep cycles reveals optimal REM patterns and dream states that correlate with your next-day cognitive performance.",
+      college: "Your nocturnal brain activity demonstrates efficient memory consolidation during REM sleep with notable theta wave patterns during dream states.",
+      phd: "Quantitative polysomnographic analysis indicates optimal hypnagogic-state memory consolidation with enhanced theta-gamma coupling during REM epochs.",
     }
   },
 };
@@ -580,11 +622,203 @@ const analyzeDailyData = (
   };
 };
 
+// Add dream insights generator function
+const generateDreamInsights = (date: Date): DreamInsight => {
+  // Create data for a specific date
+  const totalSleepTime = 6 + Math.random() * 3; // 6-9 hours
+  const remPercentage = 20 + Math.random() * 15; // 20-35%
+  const deepSleepPercentage = 15 + Math.random() * 20; // 15-35%
+  
+  // Generate dream phases (typically 4-5 REM cycles per night)
+  const dreamPhases: DreamPhase[] = [];
+  const numPhases = 4 + Math.floor(Math.random() * 2); // 4-5 phases
+  
+  const emotions = ["calm", "joy", "curiosity", "anticipation", "wonder", "concern", "nostalgia", "excitement"];
+  const dominantEmotions = [];
+  
+  // Get 2-3 random dominant emotions
+  for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) {
+    const randomEmotion = emotions[Math.floor(Math.random() * emotions.length)];
+    if (!dominantEmotions.includes(randomEmotion)) {
+      dominantEmotions.push(randomEmotion);
+    }
+  }
+  
+  // Generate each sleep phase
+  for (let i = 0; i < numPhases; i++) {
+    const phaseStart = new Date(date);
+    // First REM typically occurs 90 minutes after falling asleep, then every ~90 minutes
+    phaseStart.setHours(23 + Math.floor(i / 2), 30 + (90 * i) % 60, 0, 0);
+    
+    const remIntensity = 70 + Math.random() * 30; // 70-100
+    const deepSleepLevel = 30 + Math.random() * 40; // 30-70
+    const deltaWaveActivity = 50 + Math.random() * 50; // 50-100
+    
+    // More likely to recall dreams from later REM phases
+    const dreamRecalled = Math.random() < 0.3 + (i * 0.15);
+    
+    dreamPhases.push({
+      timestamp: phaseStart.toISOString(),
+      remIntensity,
+      deepSleepLevel,
+      deltaWaveActivity,
+      dreamRecalled,
+      emotionSignature: dreamRecalled ? dominantEmotions[i % dominantEmotions.length] : undefined
+    });
+  }
+  
+  return {
+    date: date.toISOString().split('T')[0],
+    totalSleepTime,
+    remPercentage,
+    deepSleepPercentage,
+    dreamPhases,
+    dominantEmotions,
+    correlations: {
+      nextDayFlow: 0.3 + Math.random() * 0.6, // 0.3-0.9
+      nextDayHeartRate: 0.2 + Math.random() * 0.5, // 0.2-0.7
+      nextDayCreativity: 0.4 + Math.random() * 0.5 // 0.4-0.9
+    }
+  };
+};
+
+// New component for Dream Insights visualization
+const DreamInsightsVisualization = ({ dreamData }: { dreamData: DreamInsight | null }) => {
+  if (!dreamData) {
+    return (
+      <div className="w-full h-[200px] flex items-center justify-center border rounded-md bg-accent/5">
+        <p className="text-center text-sm text-muted-foreground">
+          No dream data available for this day
+        </p>
+      </div>
+    );
+  }
+
+  // Format the dream phases data for the chart
+  const chartData = dreamData.dreamPhases.map(phase => ({
+    timestamp: new Date(phase.timestamp).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }),
+    remIntensity: phase.remIntensity,
+    deltaWaveActivity: phase.deltaWaveActivity,
+    deepSleepLevel: phase.deepSleepLevel,
+    recalled: phase.dreamRecalled ? "Yes" : "No"
+  }));
+
+  return (
+    <Card className="w-full">
+      <CardHeader className="pb-2">
+        <div className="flex justify-between items-center">
+          <CardTitle className="text-base">Dream Insights</CardTitle>
+          <div className="flex gap-1">
+            {dreamData.dominantEmotions.map(emotion => (
+              <Badge key={emotion} variant="outline" className="text-xs">
+                {emotion}
+              </Badge>
+            ))}
+          </div>
+        </div>
+        <CardDescription>
+          Sleep quality: {Math.round((dreamData.remPercentage + dreamData.deepSleepPercentage) / 2)}% • 
+          Total sleep: {dreamData.totalSleepTime.toFixed(1)} hours
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="cycles">
+          <TabsList className="mb-2">
+            <TabsTrigger value="cycles">Sleep Cycles</TabsTrigger>
+            <TabsTrigger value="correlation">Next-Day Impact</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="cycles" className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="timestamp" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip
+                  formatter={(value, name) => {
+                    if (name === "remIntensity") return [`${value}% REM Intensity`, "REM"];
+                    if (name === "deltaWaveActivity") return [`${value}% Delta Wave`, "Delta"];
+                    if (name === "deepSleepLevel") return [`${value}% Deep Sleep`, "Deep Sleep"];
+                    return [value, name];
+                  }}
+                  contentStyle={{ color: 'black' }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="remIntensity" 
+                  name="REM"
+                  stroke="#9333EA" // Purple
+                  strokeWidth={2}
+                  dot={true}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="deltaWaveActivity" 
+                  name="Delta"
+                  stroke="#3B82F6" // Blue
+                  strokeWidth={2}
+                  dot={true}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="deepSleepLevel" 
+                  name="Deep"
+                  stroke="#14B8A6" // Teal
+                  strokeWidth={2}
+                  dot={true}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </TabsContent>
+          
+          <TabsContent value="correlation" className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="flex flex-col items-center">
+                <div className="text-4xl font-semibold text-purple-600">
+                  {(dreamData.correlations.nextDayFlow * 100).toFixed(0)}%
+                </div>
+                <div className="text-xs text-muted-foreground text-center">
+                  Flow correlation
+                </div>
+              </div>
+              <div className="flex flex-col items-center">
+                <div className="text-4xl font-semibold text-red-500">
+                  {(dreamData.correlations.nextDayHeartRate * 100).toFixed(0)}%
+                </div>
+                <div className="text-xs text-muted-foreground text-center">
+                  Heart rate stability
+                </div>
+              </div>
+              <div className="flex flex-col items-center">
+                <div className="text-4xl font-semibold text-blue-500">
+                  {(dreamData.correlations.nextDayCreativity * 100).toFixed(0)}%
+                </div>
+                <div className="text-xs text-muted-foreground text-center">
+                  Creativity boost
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Your dream patterns show a {dreamData.correlations.nextDayFlow > 0.7 ? "strong" : 
+              dreamData.correlations.nextDayFlow > 0.5 ? "moderate" : "mild"} correlation with 
+              next-day flow states and cognitive performance.
+            </p>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+};
+
 const DataAnalysis = () => {
   const [selectedDataset, setSelectedDataset] = useState<Dataset>("flowIntensity");
   const [readingLevel, setReadingLevel] = useState<ReadingLevel>("college");
   const [selectedDay, setSelectedDay] = useState<string>(new Date().toLocaleDateString());
   const [viewMode, setViewMode] = useState<'weekly' | 'daily'>('daily');
+  const [emotionDisplayMode, setEmotionDisplayMode] = useState<'avatar' | 'range'>('range');
   const [actions, setActions] = useState<Array<{ id: string; type: string; description: string; timestamp: Date }>>([]);
   const { toast } = useToast();
   const [flowData, setFlowData] = useState<ProcessedFlowData[]>([]);
@@ -602,6 +836,7 @@ const DataAnalysis = () => {
   const [currentFlowValue, setCurrentFlowValue] = useState(50);
   const [currentHeartRate, setCurrentHeartRate] = useState(75);
   const [timelineData, setTimelineData] = useState<Array<{ timestamp: string; flowValue: number; heartRateValue: number }>>([]);
+  const [dreamInsights, setDreamInsights] = useState<DreamInsight | null>(null);
 
   const addAction = (type: string, description: string) => {
     const newAction = {
@@ -839,6 +1074,15 @@ const DataAnalysis = () => {
     setSelectedDataset(value);
     addAction("processing", `Analyzing ${value} dataset...`);
     
+    // If dream insights selected, fetch dream data
+    if (value === "dreamInsights") {
+      const selectedDate = new Date(selectedDay);
+      // Get dream data from previous night
+      const previousDay = new Date(selectedDate);
+      previousDay.setDate(previousDay.getDate() - 1);
+      setDreamInsights(generateDreamInsights(previousDay));
+    }
+    
     setTimeout(() => {
       addAction("complete", "Analysis completed!");
       toast({
@@ -873,6 +1117,15 @@ const DataAnalysis = () => {
         
         // Generate timeline data 
         updateTimelineData(day); 
+
+        // If dream insights is the selected dataset, generate dream data
+        if (selectedDataset === "dreamInsights") {
+          const selectedDate = new Date(day);
+          // Get dream data from previous night
+          const previousDay = new Date(selectedDate);
+          previousDay.setDate(previousDay.getDate() - 1);
+          setDreamInsights(generateDreamInsights(previousDay));
+        }
       } else { 
         console.warn("Cannot process data for day:", day, "- missing required raw flow/heart rate data"); 
         setIsTimelineLoading(false);
@@ -1133,6 +1386,7 @@ const DataAnalysis = () => {
                       <SelectItem value="flowAndHeart">Flow & Heart Rate</SelectItem>
                       <SelectItem value="flowIntensity">Flow Intensity</SelectItem>
                       <SelectItem value="heartRate">Heart Rate</SelectItem>
+                      <SelectItem value="dreamInsights">Dream Insights</SelectItem>
                       <SelectItem value="productivity">Productivity Patterns</SelectItem>
                       <SelectItem value="stress">Stress Patterns</SelectItem>
                       <SelectItem value="learning">Learning Capacity</SelectItem>
@@ -1227,8 +1481,13 @@ const DataAnalysis = () => {
                     </Select>
                   </div>
                   
+                  {selectedDay && selectedDataset === "dreamInsights" && (
+                    <DreamInsightsVisualization dreamData={dreamInsights} />
+                  )}
+                  
                   {selectedDay && dailyInsights && (
                     <div className="space-y-4">
+                      {/* Charts section */}
                       <div className="grid grid-cols-2 gap-4">
                         <div className="h-[200px] w-full">
                           <h4 className="text-sm font-medium mb-2">Flow Intensity</h4>
@@ -1298,6 +1557,7 @@ const DataAnalysis = () => {
                           </ResponsiveContainer>
                         </div>
                       </div>
+                      
                       <br></br>
                       {/* New Calm vs Frustrated Chart */}
                       <div className="h-[200px] w-full mt-4">
@@ -1363,18 +1623,57 @@ const DataAnalysis = () => {
                         
                         {dailyInsights && (
                           <div className="grid grid-cols-3 gap-4">
-                            {/* Column 1: Emotion Visualization */}
+                            {/* Column 1: Emotion Visualization with Toggle */}
                             <div className="flex flex-col items-center justify-center space-y-4">
-                              <EmotionAvatar 
-                                flowStats={dailyInsights.flowIntensity}
-                                heartRateStats={dailyInsights.heartRate}
-                                correlation={dailyInsights.correlation}
-                                frustratedIndicatorValue={dailyInsights.frustratedIndicatorValue}
-                                excitedIndicatorValue={dailyInsights.excitedIndicatorValue}
-                                calmIndicatorValue={dailyInsights.calmIndicatorValue}
-                                width={150}
-                                height={150}
-                              />
+                              <div className="flex justify-center mb-2">
+                                <ToggleGroup
+                                  type="single"
+                                  value={emotionDisplayMode}
+                                  onValueChange={(value: 'avatar' | 'range') => value && setEmotionDisplayMode(value)}
+                                  className="justify-center"
+                                >
+                                  <ToggleGroupItem value="avatar" aria-label="Avatar View" className="text-xs px-2 py-1 h-auto">
+                                    Avatar
+                                  </ToggleGroupItem>
+                                  <ToggleGroupItem value="range" aria-label="Color Range View" className="text-xs px-2 py-1 h-auto">
+                                    Color Range
+                                  </ToggleGroupItem>
+                                </ToggleGroup>
+                              </div>
+                              
+                              {emotionDisplayMode === 'avatar' ? (
+                                <EmotionAvatar 
+                                  flowStats={dailyInsights.flowIntensity}
+                                  heartRateStats={dailyInsights.heartRate}
+                                  correlation={dailyInsights.correlation}
+                                  frustratedIndicatorValue={dailyInsights.frustratedIndicatorValue}
+                                  excitedIndicatorValue={dailyInsights.excitedIndicatorValue}
+                                  calmIndicatorValue={dailyInsights.calmIndicatorValue}
+                                  width={150}
+                                  height={150}
+                                />
+                              ) : (
+                                <>
+                                  <EmotionRange
+                                    frustratedIndicatorValue={dailyInsights.frustratedIndicatorValue}
+                                    excitedIndicatorValue={dailyInsights.excitedIndicatorValue}
+                                    calmIndicatorValue={dailyInsights.calmIndicatorValue}
+                                    flowStats={dailyInsights.flowIntensity}
+                                    heartRateStats={dailyInsights.heartRate}
+                                    correlation={dailyInsights.correlation}
+                                    width={150}
+                                    height={150}
+                                    customDescription={`F:${dailyInsights.frustratedIndicatorValue}% E:${dailyInsights.excitedIndicatorValue}% C:${dailyInsights.calmIndicatorValue}%`}
+                                  />
+                                  <div className="mt-4 w-full">
+                                    <DayGradient 
+                                      timePoints={timelineData} 
+                                      width={250}
+                                      height={80}
+                                    />
+                                  </div>
+                                </>
+                              )}
                             </div>
                             
                             {/* Column 2: Flow Intensity */}

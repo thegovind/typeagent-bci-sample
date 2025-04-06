@@ -1,5 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import EmotionAvatar, { EmotionState } from './EmotionAvatar';
+import EmotionRange from './EmotionRange';
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface TimePoint {
   timestamp: string;
@@ -12,6 +15,29 @@ interface EmotionTimelineProps {
   width?: number;
 }
 
+// Visualization modes
+type VisualizationMode = "avatar" | "range";
+
+// Selection state for timeline segment analysis
+interface SegmentSelection {
+  startHour: string | null;
+  startSlot: number | null;
+  endHour: string | null;
+  endSlot: number | null;
+}
+
+// Average values for the selected segment
+interface SegmentAverages {
+  flowAverage: number;
+  heartRateAverage: number;
+  frustrationAverage: number;
+  excitementAverage: number;
+  calmAverage: number;
+  pointCount: number;
+  startTime: string;
+  endTime: string;
+}
+
 const determineEmotion = (flowValue: number, heartRateValue: number): EmotionState => {
   // Logic to determine emotion based on flow and heart rate values
   if (flowValue > 80) {
@@ -22,6 +48,30 @@ const determineEmotion = (flowValue: number, heartRateValue: number): EmotionSta
     return "surprised";
   }
   return "neutral";
+};
+
+// Calculate frustration based on flow and heart rate
+const getFrustration = (flow: number, heart: number): number => {
+  // Higher heart rate and lower flow indicates frustration
+  if (flow < 40 && heart > 80) return 85;
+  if (flow < 60 && heart > 70) return 60;
+  return Math.max(0, Math.min(100, 100 - flow + (heart - 70)));
+};
+
+// Calculate excitement based on flow and heart rate
+const getExcitement = (flow: number, heart: number): number => {
+  // High flow and elevated heart rate indicates excitement
+  if (flow > 80 && heart > 75) return 85;
+  if (flow > 60 && heart > 65) return 60;
+  return Math.max(0, Math.min(100, flow * 0.8 + (heart - 60) * 0.4));
+};
+
+// Calculate calm based on flow and heart rate
+const getCalm = (flow: number, heart: number): number => {
+  // Moderate flow and lower heart rate indicates calm
+  if (flow > 40 && flow < 80 && heart < 70) return 85;
+  if (heart < 75) return 60;
+  return Math.max(0, Math.min(100, 100 - (heart - 50)));
 };
 
 const formatTime = (dateString: string): string => {
@@ -71,10 +121,54 @@ const isValidDateString = (dateString: string): boolean => {
   }
 };
 
+// Component to render the legend for EmotionRange
+const EmotionRangeLegend = () => {
+  return (
+    <div className="flex items-center gap-4 text-xs py-2">
+      <div className="flex items-center gap-1">
+        <div className="w-3 h-3 rounded-sm bg-red-500"></div>
+        <span>Frustration</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <div className="w-3 h-3 rounded-sm bg-green-500"></div>
+        <span>Excitement</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <div className="w-3 h-3 rounded-sm bg-blue-500"></div>
+        <span>Calm</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <div className="w-3 h-3 rounded-sm" style={{ background: 'linear-gradient(to right, black, white)' }}></div>
+        <span>Intensity (0-100%)</span>
+      </div>
+    </div>
+  );
+};
+
 const EmotionTimeline: React.FC<EmotionTimelineProps> = ({ 
   timePoints, 
   width = 700
 }) => {
+  // Add state for visualization mode
+  const [visualizationMode, setVisualizationMode] = useState<VisualizationMode>("range");
+  
+  // Selection state for timeline segments
+  const [selection, setSelection] = useState<SegmentSelection>({
+    startHour: null,
+    startSlot: null,
+    endHour: null,
+    endSlot: null,
+  });
+  
+  // State for segment analysis
+  const [segmentAverages, setSegmentAverages] = useState<SegmentAverages | null>(null);
+  
+  // State to track if we're in selection mode
+  const [isSelecting, setIsSelecting] = useState<boolean>(false);
+  
+  // Ref to store timepoint data for segment analysis
+  const timePointsRef = useRef<{ [hourKey: string]: { [slotIndex: number]: TimePoint } }>({});
+
   // Early validation of input data
   if (!timePoints || !Array.isArray(timePoints) || timePoints.length === 0) {
     console.log("EmotionTimeline: No timeline data available");
@@ -213,12 +307,309 @@ const EmotionTimeline: React.FC<EmotionTimelineProps> = ({
     return <div className="text-center text-sm text-muted-foreground">No valid timeline data available</div>;
   }
   
+  // Function to handle selecting a timeline cell
+  const handleCellSelect = (hourKey: string, slotIndex: number) => {
+    if (!isSelecting) {
+      // Start selection
+      setIsSelecting(true);
+      setSelection({
+        startHour: hourKey,
+        startSlot: slotIndex,
+        endHour: hourKey,
+        endSlot: slotIndex
+      });
+      return;
+    }
+    
+    // Complete selection
+    setIsSelecting(false);
+    
+    // Set the end point of selection
+    const updatedSelection = {
+      ...selection,
+      endHour: hourKey,
+      endSlot: slotIndex
+    };
+    setSelection(updatedSelection);
+    
+    // Calculate averages for the selection
+    calculateSegmentAverages(updatedSelection);
+  };
+  
+  // Function to handle clearing selection
+  const clearSelection = () => {
+    setSelection({
+      startHour: null,
+      startSlot: null,
+      endHour: null,
+      endSlot: null
+    });
+    setSegmentAverages(null);
+    setIsSelecting(false);
+  };
+  
+  // Function to check if a cell is within the current selection
+  const isCellSelected = (hourKey: string, slotIndex: number): boolean => {
+    if (!selection.startHour || !selection.startSlot) {
+      return false;
+    }
+    
+    const allHours = validHours;
+    const startHourIndex = allHours.indexOf(selection.startHour);
+    const endHourIndex = selection.endHour ? allHours.indexOf(selection.endHour) : startHourIndex;
+    const currentHourIndex = allHours.indexOf(hourKey);
+    
+    if (startHourIndex === -1 || endHourIndex === -1 || currentHourIndex === -1) {
+      return false;
+    }
+    
+    const minHourIndex = Math.min(startHourIndex, endHourIndex);
+    const maxHourIndex = Math.max(startHourIndex, endHourIndex);
+    
+    // If hour is outside selection range
+    if (currentHourIndex < minHourIndex || currentHourIndex > maxHourIndex) {
+      return false;
+    }
+    
+    // If this is the only hour in selection
+    if (minHourIndex === maxHourIndex) {
+      const minSlot = Math.min(selection.startSlot!, selection.endSlot || 0);
+      const maxSlot = Math.max(selection.startSlot!, selection.endSlot || 0);
+      return slotIndex >= minSlot && slotIndex <= maxSlot;
+    }
+    
+    // If this is the first hour in selection
+    if (currentHourIndex === minHourIndex) {
+      if (minHourIndex === startHourIndex) {
+        return slotIndex >= selection.startSlot!;
+      } else {
+        return slotIndex <= selection.startSlot!;
+      }
+    }
+    
+    // If this is the last hour in selection
+    if (currentHourIndex === maxHourIndex) {
+      if (maxHourIndex === startHourIndex) {
+        return slotIndex <= selection.startSlot!;
+      } else {
+        return slotIndex >= 0;
+      }
+    }
+    
+    // If hour is in the middle of selection range
+    return true;
+  };
+  
+  // Calculate averages for the selected timeline segment
+  const calculateSegmentAverages = (sel: SegmentSelection) => {
+    if (!sel.startHour || !sel.startSlot || !sel.endHour || sel.endSlot === null) {
+      setSegmentAverages(null);
+      return;
+    }
+    
+    const allHours = validHours;
+    const startHourIndex = allHours.indexOf(sel.startHour);
+    const endHourIndex = allHours.indexOf(sel.endHour);
+    
+    if (startHourIndex === -1 || endHourIndex === -1) {
+      setSegmentAverages(null);
+      return;
+    }
+    
+    const minHourIndex = Math.min(startHourIndex, endHourIndex);
+    const maxHourIndex = Math.max(startHourIndex, endHourIndex);
+    
+    let flowSum = 0;
+    let heartRateSum = 0;
+    let frustrationSum = 0;
+    let excitementSum = 0;
+    let calmSum = 0;
+    let pointCount = 0;
+    
+    // For calculating time range
+    let firstTimestamp: string | null = null;
+    let lastTimestamp: string | null = null;
+    
+    // Loop through all hours in the selection
+    for (let hourIdx = minHourIndex; hourIdx <= maxHourIndex; hourIdx++) {
+      const hourKey = allHours[hourIdx];
+      const pointsInHour = hourlyData[hourKey];
+      
+      if (!pointsInHour) continue;
+      
+      // Create a map of valid points in this hour
+      const slotMap: Record<number, TimePoint> = {};
+      pointsInHour.forEach(point => {
+        try {
+          const date = new Date(point.timestamp);
+          const minutes = date.getMinutes();
+          const slotIndex = Math.floor(minutes / 5);
+          if (slotIndex >= 0 && slotIndex < 12) {
+            slotMap[slotIndex] = point;
+          }
+        } catch (e) {
+          console.error("Error processing point for averages:", point, e);
+        }
+      });
+      
+      // Determine which slots to include for this hour
+      let minSlot = 0;
+      let maxSlot = 11;
+      
+      if (hourIdx === minHourIndex && hourIdx === maxHourIndex) {
+        // If it's the only hour, use the selected slots
+        minSlot = Math.min(sel.startSlot, sel.endSlot);
+        maxSlot = Math.max(sel.startSlot, sel.endSlot);
+      } else if (hourIdx === minHourIndex) {
+        // If it's the first hour, start from the selected slot
+        if (minHourIndex === startHourIndex) {
+          minSlot = sel.startSlot;
+        } else {
+          maxSlot = sel.startSlot;
+        }
+      } else if (hourIdx === maxHourIndex) {
+        // If it's the last hour, end at the selected slot
+        if (maxHourIndex === startHourIndex) {
+          maxSlot = sel.startSlot;
+        } else {
+          minSlot = 0;
+          maxSlot = sel.endSlot;
+        }
+      }
+      
+      // Sum up values for all points in this hour's selected slots
+      for (let slotIdx = minSlot; slotIdx <= maxSlot; slotIdx++) {
+        const point = slotMap[slotIdx];
+        if (point) {
+          // Track first and last timestamps for time range display
+          if (!firstTimestamp || new Date(point.timestamp) < new Date(firstTimestamp)) {
+            firstTimestamp = point.timestamp;
+          }
+          if (!lastTimestamp || new Date(point.timestamp) > new Date(lastTimestamp)) {
+            lastTimestamp = point.timestamp;
+          }
+          
+          flowSum += point.flowValue;
+          heartRateSum += point.heartRateValue;
+          frustrationSum += getFrustration(point.flowValue, point.heartRateValue);
+          excitementSum += getExcitement(point.flowValue, point.heartRateValue);
+          calmSum += getCalm(point.flowValue, point.heartRateValue);
+          pointCount++;
+        }
+      }
+    }
+    
+    // Calculate averages
+    if (pointCount > 0) {
+      setSegmentAverages({
+        flowAverage: Math.round(flowSum / pointCount),
+        heartRateAverage: Math.round(heartRateSum / pointCount),
+        frustrationAverage: Math.round(frustrationSum / pointCount),
+        excitementAverage: Math.round(excitementSum / pointCount),
+        calmAverage: Math.round(calmSum / pointCount),
+        pointCount,
+        startTime: firstTimestamp ? formatTime(firstTimestamp) : 'Unknown',
+        endTime: lastTimestamp ? formatTime(lastTimestamp) : 'Unknown'
+      });
+    } else {
+      setSegmentAverages(null);
+    }
+  };
+  
   return (
     <div className="w-full overflow-auto pb-2 border rounded-md bg-accent/5">
       <div className="flex flex-col space-y-1 p-3">
-        <h4 className="text-sm font-medium mb-3">
-          Emotional Timeline (5-minute intervals) - {validHours.length} hours with data
-        </h4>
+        <div className="flex justify-between items-center mb-3">
+          <h4 className="text-sm font-medium">
+            Emotional Timeline (5-minute intervals) - {validHours.length} hours with data
+          </h4>
+          <ToggleGroup
+            type="single"
+            value={visualizationMode}
+            onValueChange={(value: VisualizationMode) => {
+              if (value) {
+                setVisualizationMode(value);
+                // Clear selection when switching modes
+                clearSelection();
+              }
+            }}
+            className="justify-end"
+          >
+            <ToggleGroupItem value="avatar" aria-label="Avatar View" className="text-xs px-2 py-1 h-auto">
+              Avatar
+            </ToggleGroupItem>
+            <ToggleGroupItem value="range" aria-label="Color Range View" className="text-xs px-2 py-1 h-auto">
+              Color Range
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+        
+        {/* Legend for EmotionRange mode */}
+        {visualizationMode === "range" && (
+          <div className="mb-2">
+            <EmotionRangeLegend />
+          </div>
+        )}
+        
+        {/* Selection status and instructions */}
+        {visualizationMode === "range" && (
+          <div className="mb-2 text-xs text-muted-foreground">
+            {isSelecting ? (
+              <p>Click another cell to complete selection</p>
+            ) : (
+              selection.startHour ? (
+                <div className="flex justify-between">
+                  <p>Selection active. Click a cell to start a new selection.</p>
+                  <button 
+                    className="text-xs text-accent underline" 
+                    onClick={clearSelection}
+                  >
+                    Clear selection
+                  </button>
+                </div>
+              ) : (
+                <p>Click a cell to select a segment for analysis</p>
+              )
+            )}
+          </div>
+        )}
+        
+        {/* Display segment averages if available */}
+        {segmentAverages && visualizationMode === "range" && (
+          <Card className="mb-2 bg-accent/10">
+            <CardContent className="py-3">
+              <div className="flex justify-between items-center mb-2">
+                <h5 className="text-sm font-medium">Selected Segment Analysis</h5>
+                <span className="text-xs text-muted-foreground">
+                  {segmentAverages.startTime} - {segmentAverages.endTime}
+                </span>
+              </div>
+              <div className="grid grid-cols-5 gap-2 text-xs">
+                <div>
+                  <p className="text-muted-foreground">Flow Intensity</p>
+                  <p className="font-semibold">{segmentAverages.flowAverage}%</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Heart Rate</p>
+                  <p className="font-semibold">{segmentAverages.heartRateAverage} bpm</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Frustration</p>
+                  <p className="font-semibold text-red-500">{segmentAverages.frustrationAverage}%</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Excitement</p>
+                  <p className="font-semibold text-green-500">{segmentAverages.excitementAverage}%</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Calm</p>
+                  <p className="font-semibold text-blue-500">{segmentAverages.calmAverage}%</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Based on {segmentAverages.pointCount} data points</p>
+            </CardContent>
+          </Card>
+        )}
         
         {/* Column headers showing 5-minute increments */}
         <div className="flex pl-20 mb-2">
@@ -251,48 +642,75 @@ const EmotionTimeline: React.FC<EmotionTimelineProps> = ({
                   slotMap[slotIndex] = point;
                 }
               } catch (e) {
-                console.error("Error mapping point to slot:", point, e);
+                console.error("Error processing point in hour row:", point, e);
               }
             });
             
-            // Log slots with data for debugging
-            let slotsWithData = 0;
-            for (let i = 0; i < 12; i++) {
-              if (slotMap[i]) slotsWithData++;
-            }
-            console.log(`EmotionTimeline: Hour ${formatHour(hourKey)} has data in ${slotsWithData}/12 slots`);
-            
             return (
-              <div key={hourKey} className="flex items-center hover:bg-background py-1 px-2 rounded transition-colors">
-                {/* Hour label */}
-                <div className="w-20 font-medium text-sm pr-3 text-right">
+              <div key={hourKey} className="flex items-center">
+                <div className="w-20 text-sm font-medium pr-2">
                   {formatHour(hourKey)}
                 </div>
                 
-                {/* 5-minute interval slots */}
                 <div className="flex">
                   {Array(12).fill(0).map((_, slotIndex) => {
                     const point = slotMap[slotIndex];
                     
+                    if (!point) {
+                      // Empty slot
+                      return (
+                        <div 
+                          key={`${hourKey}-${slotIndex}`} 
+                          className={`border border-dashed border-gray-200 rounded-sm opacity-30 ${visualizationMode === "range" ? "cursor-not-allowed" : ""}`}
+                          style={{ width: `${avatarSize}px`, height: `${avatarSize}px` }}
+                        />
+                      );
+                    }
+                    
+                    // Determine emotion state for this point
+                    const emotion = determineEmotion(point.flowValue, point.heartRateValue);
+                    
+                    // Calculate emotion indicators for EmotionRange
+                    const frustration = getFrustration(point.flowValue, point.heartRateValue);
+                    const excitement = getExcitement(point.flowValue, point.heartRateValue);
+                    const calm = getCalm(point.flowValue, point.heartRateValue);
+                    
+                    // Determine if this cell is selected (only relevant in range mode)
+                    const isSelected = visualizationMode === "range" && isCellSelected(hourKey, slotIndex);
+                    
                     return (
                       <div 
-                        key={`slot-${slotIndex}`}
-                        className={`flex justify-center items-center ${slotIndex % 2 === 0 ? 'bg-accent/5' : ''} rounded-sm`}
-                        style={{ width: `${avatarSize}px`, height: `${avatarSize}px` }}
+                        key={`${hourKey}-${slotIndex}`}
+                        title={`${formatTime(point.timestamp)}\nFlow: ${point.flowValue.toFixed(0)}\nHeart: ${point.heartRateValue.toFixed(0)}\nFrustration: ${frustration.toFixed(0)}%\nExcitement: ${excitement.toFixed(0)}%\nCalm: ${calm.toFixed(0)}%`}
+                        style={{ 
+                          width: `${avatarSize}px`, 
+                          height: `${avatarSize}px`,
+                          outline: isSelected ? '2px solid #9333EA' : 'none',
+                          zIndex: isSelected ? 1 : 'auto'
+                        }}
+                        className={`cursor-pointer hover:scale-110 transition-all ${isSelected ? 'ring-2 ring-accent' : ''}`}
+                        onClick={visualizationMode === "range" ? () => handleCellSelect(hourKey, slotIndex) : undefined}
                       >
-                        {point ? (
-                          <div className="flex flex-col items-center justify-center">
-                            <EmotionAvatar
-                              flowIntensity={point.flowValue}
-                              heartRate={point.heartRateValue}
-                              emotion={determineEmotion(point.flowValue, point.heartRateValue)}
-                              width={avatarSize - 5}
-                              height={avatarSize - 5}
-                              showLabel={false}
-                            />
-                          </div>
+                        {visualizationMode === "avatar" ? (
+                          <EmotionAvatar
+                            emotion={emotion}
+                            flowIntensity={point.flowValue}
+                            heartRate={point.heartRateValue}
+                            width={avatarSize}
+                            height={avatarSize}
+                            showLabel={false}
+                          />
                         ) : (
-                          <div className="w-2 h-2 rounded-full bg-gray-200"></div>
+                          <EmotionRange
+                            frustratedIndicatorValue={frustration}
+                            excitedIndicatorValue={excitement}
+                            calmIndicatorValue={calm}
+                            flowIntensity={point.flowValue}
+                            heartRate={point.heartRateValue}
+                            width={avatarSize}
+                            height={avatarSize}
+                            showLabel={false}
+                          />
                         )}
                       </div>
                     );
@@ -318,6 +736,6 @@ const EmotionTimeline: React.FC<EmotionTimelineProps> = ({
       </div>
     </div>
   );
-}
+};
 
 export default EmotionTimeline; 

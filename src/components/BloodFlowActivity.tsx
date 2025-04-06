@@ -2,7 +2,8 @@ import { motion, animate } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { WifiIcon } from "lucide-react";
-import EmotionAvatar from "@/components/ui/EmotionAvatar";
+import EmotionRange from "@/components/ui/EmotionRange";
+import EmotionTimelineBar from "@/components/ui/EmotionTimelineBar";
 
 const BloodFlowActivity = () => {
   const [selectedActivity, setSelectedActivity] = useState<string>("working");
@@ -10,6 +11,23 @@ const BloodFlowActivity = () => {
   const [flowIntensity, setFlowIntensity] = useState(0);
   const [heartRate, setHeartRate] = useState(75); // Default heart rate
   const isConnected = true;
+  const [displayMode, setDisplayMode] = useState<'emotion-timeline'>('emotion-range');
+
+  // Calculate derived emotion values for RGB representation
+  const getFrustratedValue = () => Math.min(100, Math.max(0, 
+    // Higher frustration when flow is low and heart rate is high
+    flowIntensity < 40 && heartRate > 75 ? 80 : flowIntensity < 30 ? 70 : 30
+  ));
+  
+  const getExcitedValue = () => Math.min(100, Math.max(0, 
+    // Higher excitement when flow is high and heart rate is high
+    flowIntensity > 70 && heartRate > 80 ? 90 : flowIntensity > 60 ? 75 : 40
+  ));
+  
+  const getCalmValue = () => Math.min(100, Math.max(0, 
+    // Higher calmness when flow is moderate and heart rate is low
+    flowIntensity > 40 && flowIntensity < 70 && heartRate < 70 ? 85 : heartRate < 65 ? 70 : 35
+  ));
 
   // Periodically update flow intensity
   useEffect(() => {
@@ -49,8 +67,11 @@ const BloodFlowActivity = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const circumference = 2 * Math.PI * 120;
-  const offset = circumference - (flowIntensity / 100) * circumference;
+  // Calculate values for half circle (180 degrees)
+  const radius = 70;
+  const diameter = radius * 2;
+  const halfCircumference = Math.PI * radius;
+  const offset = halfCircumference - (flowIntensity / 100) * halfCircumference;
 
   return (
     <div className="p-4 border border-sidebar-border rounded-lg bg-sidebar-background/50">
@@ -65,35 +86,36 @@ const BloodFlowActivity = () => {
       </div>
       
       <div className="space-y-6">
-        <div className="relative flex flex-col items-center justify-center h-48">
-          <svg className="transform -rotate-90 w-48 h-48">
-            <circle
-              cx="96"
-              cy="96"
-              r="70"
+        <div className="relative flex flex-col items-center justify-center h-32">
+          <svg className="w-48 h-48">
+            <path
+              d={`M 26 96 A 70 70 0 0 1 166 96`}
               fill="none"
-              stroke="rgb(var(--muted))"
+              stroke="#8a5cf6"
               strokeWidth="8"
+              strokeLinecap="round"
             />
-            <motion.circle
-              cx="96"
-              cy="96"
-              r="70"
+            <motion.path
+              d={`M 26 96 A 70 70 0 0 1 166 96`}
               fill="none"
               stroke="rgb(var(--accent))"
               strokeWidth="8"
               strokeLinecap="round"
-              initial={{ strokeDashoffset: circumference }}
+              initial={{ pathLength: 0 }}
               animate={{ 
-                strokeDashoffset: offset,
+                pathLength: flowIntensity / 100,
                 transition: { duration: 1, ease: "easeInOut" }
               }}
-              style={{
-                strokeDasharray: circumference
-              }}
             />
+            {/* Add tick marks for scale */}
+            <line x1="26" y1="96" x2="26" y2="86" stroke="white" strokeWidth="2" />
+            <line x1="96" y1="26" x2="96" y2="36" stroke="white" strokeWidth="2" />
+            <line x1="166" y1="96" x2="166" y2="86" stroke="white" strokeWidth="2" />
+            <text x="20" y="110" className="text-[8px] fill-muted-foreground">0</text>
+            <text x="94" y="20" className="text-[8px] fill-muted-foreground">50</text>
+            <text x="166" y="110" className="text-[8px] fill-muted-foreground">100</text>
           </svg>
-          <div className="absolute flex flex-col items-center">
+          <div className="absolute flex flex-col items-center" style={{ top: '45%' }}>
             <motion.span 
               className="text-4xl font-bold text-accent"
               key={flowIntensity}
@@ -107,11 +129,25 @@ const BloodFlowActivity = () => {
           </div>
         </div>
 
-        {/* Emotional Avatar */}
+        {/* Emotion Visualization */}
         <div className="border-t border-sidebar-border pt-4">
-          <EmotionAvatar 
-            flowIntensity={flowIntensity} 
-            heartRate={heartRate} 
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-medium">Emotion Analysis</h4>
+            <Button 
+              variant="outline" 
+              size="sm"
+              className="h-6 text-xs"
+            >
+            </Button>
+          </div>
+          <EmotionTimelineBar
+            flowIntensity={flowIntensity}
+            heartRate={heartRate}
+            frustratedValue={getFrustratedValue()}
+            excitedValue={getExcitedValue()}
+            calmValue={getCalmValue()}
+            historySize={10}
+            updateInterval={3000}
           />
         </div>
 
