@@ -76,7 +76,7 @@ const DayGradient: React.FC<DayGradientProps> = ({
       // Draw background ring
       ctx.beginPath();
       ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = '#f0f0f0';
+      ctx.strokeStyle = "rgb(255 255 255 / 20%)";
       ctx.lineWidth = thickness;
       ctx.stroke();
       
