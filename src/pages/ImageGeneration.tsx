@@ -3,9 +3,11 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Image as ImageIcon, Download, RefreshCw } from "lucide-react";
+import { Loader2, Image as ImageIcon, Download, RefreshCw, Calendar as CalendarIcon, Clock } from "lucide-react";
 import DynamicSidebar from "@/components/DynamicSidebar";
 import EmotionAvatar from "@/components/ui/EmotionAvatar";
+import { Calendar } from "@/components/ui/calendar";
+import EmotionTimeline from "@/components/ui/EmotionTimeline";
 
 interface BrainState {
   flowIntensity: number;
@@ -26,8 +28,18 @@ const ImageGeneration = () => {
     calmValue: 35
   });
   
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [timelineData, setTimelineData] = useState<Array<{
+    timestamp: string;
+    flowValue: number;
+    heartRateValue: number;
+    frustratedValue: number;
+    excitedValue: number;
+    calmValue: number;
+  }>>([]);
+  
   const [userPrompt, setUserPrompt] = useState("");
-  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
+  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>("/brain-multiverse-example.png");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generationHistory, setGenerationHistory] = useState<Array<{
@@ -38,9 +50,9 @@ const ImageGeneration = () => {
   }>>([]);
 
   useEffect(() => {
-    const fetchBrainState = async () => {
+    const fetchTimelineData = async () => {
       try {
-        const response = await fetch('http://localhost:3000/api/getMostRecentRecord', {
+        const response = await fetch('http://localhost:3000/api/getFlowIntensityData', {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -50,47 +62,34 @@ const ImageGeneration = () => {
         
         if (response.ok) {
           const data = await response.json();
-          const flowIntensity = Math.floor(data['flowIntensityValues']?.[0] || 0);
-          const heartRate = Math.floor(data['heartRateValues']?.[0] || 75);
-          
-          const frustratedValue = Math.min(100, Math.max(0, 
-            flowIntensity < 40 && heartRate > 75 ? 80 : flowIntensity < 30 ? 70 : 30
-          ));
-          const excitedValue = Math.min(100, Math.max(0, 
-            flowIntensity > 70 && heartRate > 80 ? 90 : flowIntensity > 60 ? 75 : 40
-          ));
-          const calmValue = Math.min(100, Math.max(0, 
-            flowIntensity > 40 && flowIntensity < 70 && heartRate < 70 ? 85 : heartRate < 65 ? 70 : 35
-          ));
-          
-          let emotionalState = "neutral";
-          if (frustratedValue > 60) emotionalState = "stressed";
-          else if (excitedValue > 70) emotionalState = "focused";
-          else if (calmValue > 70) emotionalState = "calm";
-          
-          setBrainState({
-            flowIntensity: flowIntensity || Math.floor(Math.random() * (85 - 15) + 15),
-            heartRate: heartRate || Math.floor(Math.random() * (85 - 65) + 65),
-            emotionalState,
-            frustratedValue,
-            excitedValue,
-            calmValue
-          });
+          if (data.flowIntensityData && Array.isArray(data.flowIntensityData)) {
+            const formattedData = data.flowIntensityData.map((item: any) => ({
+              timestamp: item.timestamp || new Date().toISOString(),
+              flowValue: item.flowIntensity || Math.floor(Math.random() * (85 - 15) + 15),
+              heartRateValue: item.heartRate || Math.floor(Math.random() * (85 - 65) + 65),
+              frustratedValue: Math.floor(Math.random() * 40 + 20),
+              excitedValue: Math.floor(Math.random() * 40 + 30),
+              calmValue: Math.floor(Math.random() * 40 + 25)
+            }));
+            setTimelineData(formattedData);
+          }
         }
       } catch (error) {
-        console.error('Error fetching brain state:', error);
-        const randomFlow = Math.floor(Math.random() * (85 - 15) + 15);
-        const randomHeart = Math.floor(Math.random() * (85 - 65) + 65);
-        setBrainState(prev => ({
-          ...prev,
-          flowIntensity: randomFlow,
-          heartRate: randomHeart
+        console.error('Error fetching timeline data:', error);
+        const mockData = Array.from({ length: 24 }, (_, i) => ({
+          timestamp: new Date(Date.now() - (23 - i) * 60 * 60 * 1000).toISOString(),
+          flowValue: Math.floor(Math.random() * (85 - 15) + 15),
+          heartRateValue: Math.floor(Math.random() * (85 - 65) + 65),
+          frustratedValue: Math.floor(Math.random() * 40 + 20),
+          excitedValue: Math.floor(Math.random() * 40 + 30),
+          calmValue: Math.floor(Math.random() * 40 + 25)
         }));
+        setTimelineData(mockData);
       }
     };
 
-    fetchBrainState();
-    const interval = setInterval(fetchBrainState, 5000);
+    fetchTimelineData();
+    const interval = setInterval(fetchTimelineData, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -175,49 +174,46 @@ const ImageGeneration = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Brain State Display */}
+            {/* Time Picker with Mood Overlay */}
             <Card className="lg:col-span-1">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <RefreshCw className="h-5 w-5" />
-                  Current Brain State
+                  <CalendarIcon className="h-5 w-5" />
+                  Select Time Period
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex justify-center">
-                  <EmotionAvatar
-                    flowIntensity={brainState.flowIntensity}
-                    heartRate={brainState.heartRate}
-                    frustratedIndicatorValue={brainState.frustratedValue}
-                    excitedIndicatorValue={brainState.excitedValue}
-                    calmIndicatorValue={brainState.calmValue}
-                    width={120}
-                    height={120}
-                    showLabel={true}
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={setSelectedDate}
+                    className="rounded-md border"
                   />
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="p-3 border border-sidebar-border rounded bg-sidebar-background/50">
-                    <div className="text-muted-foreground">Flow Intensity</div>
-                    <div className="text-accent font-medium text-lg">{brainState.flowIntensity}%</div>
-                  </div>
-                  <div className="p-3 border border-sidebar-border rounded bg-sidebar-background/50">
-                    <div className="text-muted-foreground">Heart Rate</div>
-                    <div className="text-red-400 font-medium text-lg">{brainState.heartRate} BPM</div>
-                  </div>
-                  <div className="p-3 border border-sidebar-border rounded bg-sidebar-background/50">
-                    <div className="text-muted-foreground">Emotional State</div>
-                    <div className="text-blue-400 font-medium capitalize">{brainState.emotionalState}</div>
-                  </div>
-                  <div className="p-3 border border-sidebar-border rounded bg-sidebar-background/50">
-                    <div className="text-muted-foreground">Dominant Emotion</div>
-                    <div className="text-green-400 font-medium">
-                      {brainState.frustratedValue > Math.max(brainState.excitedValue, brainState.calmValue) ? 'Frustrated' :
-                       brainState.excitedValue > brainState.calmValue ? 'Excited' : 'Calm'}
+                {selectedDate && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Clock className="h-4 w-4" />
+                      Mood Timeline for {selectedDate.toLocaleDateString()}
+                    </div>
+                    
+                    <div className="border rounded-lg p-2 bg-sidebar-background/30">
+                      <EmotionTimeline 
+                        timePoints={timelineData.filter(point => {
+                          const pointDate = new Date(point.timestamp);
+                          return pointDate.toDateString() === selectedDate.toDateString();
+                        })}
+                        width={280}
+                      />
+                    </div>
+                    
+                    <div className="text-xs text-muted-foreground text-center">
+                      Click on timeline segments to select specific time periods for image generation
                     </div>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
 
@@ -236,14 +232,14 @@ const ImageGeneration = () => {
                   </label>
                   <Textarea
                     id="prompt"
-                    placeholder="Describe what you want to generate (e.g., 'a peaceful landscape', 'abstract art representing focus', 'a futuristic cityscape')..."
+                    placeholder="Describe your brain state during a certain time e.g. 'Running around a circle in multiverse'..."
                     value={userPrompt}
                     onChange={(e) => setUserPrompt(e.target.value)}
                     rows={3}
                     className="resize-none"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Your brain state will automatically be incorporated into the generation prompt
+                    Your selected time period's brain state will automatically be incorporated into the generation prompt
                   </p>
                 </div>
 
