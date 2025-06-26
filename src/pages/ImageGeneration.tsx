@@ -8,6 +8,7 @@ import DynamicSidebar from "@/components/DynamicSidebar";
 import EmotionAvatar from "@/components/ui/EmotionAvatar";
 import { Calendar } from "@/components/ui/calendar";
 import EmotionTimeline from "@/components/ui/EmotionTimeline";
+import { TimePicker } from "@/components/ui/TimePicker";
 
 interface BrainState {
   flowIntensity: number;
@@ -29,6 +30,7 @@ const ImageGeneration = () => {
   });
   
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [selectedTime, setSelectedTime] = useState({ hour: 2, minute: 0 }); // Default to 2 AM REM sleep
   const [timelineData, setTimelineData] = useState<Array<{
     timestamp: string;
     flowValue: number;
@@ -92,6 +94,38 @@ const ImageGeneration = () => {
     const interval = setInterval(fetchTimelineData, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (selectedDate && timelineData.length > 0) {
+      const timeSpecificData = timelineData.filter(point => {
+        const pointDate = new Date(point.timestamp);
+        const pointHour = pointDate.getHours();
+        const pointMinute = pointDate.getMinutes();
+        
+        return pointDate.toDateString() === selectedDate.toDateString() &&
+               pointHour === selectedTime.hour &&
+               Math.abs(pointMinute - selectedTime.minute) <= 15;
+      });
+      
+      if (timeSpecificData.length > 0) {
+        const avgFlow = timeSpecificData.reduce((sum, point) => sum + point.flowValue, 0) / timeSpecificData.length;
+        const avgHeartRate = timeSpecificData.reduce((sum, point) => sum + point.heartRateValue, 0) / timeSpecificData.length;
+        const avgFrustrated = timeSpecificData.reduce((sum, point) => sum + point.frustratedValue, 0) / timeSpecificData.length;
+        const avgExcited = timeSpecificData.reduce((sum, point) => sum + point.excitedValue, 0) / timeSpecificData.length;
+        const avgCalm = timeSpecificData.reduce((sum, point) => sum + point.calmValue, 0) / timeSpecificData.length;
+        
+        setBrainState({
+          flowIntensity: Math.round(avgFlow),
+          heartRate: Math.round(avgHeartRate),
+          emotionalState: avgCalm > Math.max(avgFrustrated, avgExcited) ? "calm" : 
+                         avgExcited > avgFrustrated ? "excited" : "frustrated",
+          frustratedValue: Math.round(avgFrustrated),
+          excitedValue: Math.round(avgExcited),
+          calmValue: Math.round(avgCalm)
+        });
+      }
+    }
+  }, [selectedDate, selectedTime, timelineData]);
 
   const generateImage = async () => {
     if (!userPrompt.trim()) {
@@ -179,7 +213,7 @@ const ImageGeneration = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <CalendarIcon className="h-5 w-5" />
-                  Select Time Period
+                  Select Date & Time
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -192,18 +226,35 @@ const ImageGeneration = () => {
                   />
                 </div>
                 
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Time</label>
+                  <TimePicker
+                    defaultHour={2}
+                    defaultMinute={0}
+                    onChange={(hour, minute) => setSelectedTime({ hour, minute })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Default: 2:00 AM (REM sleep period for dream state visualization)
+                  </p>
+                </div>
+                
                 {selectedDate && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Clock className="h-4 w-4" />
-                      Mood Timeline for {selectedDate.toLocaleDateString()}
+                      Brain Activity for {selectedDate.toLocaleDateString()} at {selectedTime.hour}:{selectedTime.minute.toString().padStart(2, '0')}
                     </div>
                     
                     <div className="border rounded-lg p-2 bg-sidebar-background/30">
                       <EmotionTimeline 
                         timePoints={timelineData.filter(point => {
                           const pointDate = new Date(point.timestamp);
-                          return pointDate.toDateString() === selectedDate.toDateString();
+                          const pointHour = pointDate.getHours();
+                          const pointMinute = pointDate.getMinutes();
+                          
+                          return pointDate.toDateString() === selectedDate.toDateString() &&
+                                 pointHour === selectedTime.hour &&
+                                 Math.abs(pointMinute - selectedTime.minute) <= 15; // Show ±15 minutes around selected time
                         })}
                         width={280}
                       />
